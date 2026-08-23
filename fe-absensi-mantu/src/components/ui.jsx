@@ -48,13 +48,13 @@ export function Modal({ open, title, description, children, onClose, size = 'md'
   )
 }
 
-export function ConfirmDialog({ open, title = 'Hapus data?', description, busy, onClose, onConfirm }) {
+export function ConfirmDialog({ open, title = 'Hapus data?', description, confirmLabel = 'Ya, hapus', busy, onClose, onConfirm }) {
   return (
     <Modal open={open} title={title} onClose={onClose}>
       <div className="confirm-content"><span className="warning-icon"><AlertTriangle /></span><p>{description}</p></div>
       <div className="modal-footer">
         <button className="button secondary" type="button" onClick={onClose}>Batal</button>
-        <button className="button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? 'Menghapus...' : 'Ya, hapus'}</button>
+        <button className="button danger" type="button" disabled={busy} onClick={onConfirm}>{busy ? 'Memproses...' : confirmLabel}</button>
       </div>
     </Modal>
   )

@@ -304,7 +304,6 @@ td strong { color: #26332f; }
 .face-card { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid #e6ecea; border-radius: 12px; padding: 11px; }
 .face-card:hover { border-color: #cddbd7; box-shadow: 0 5px 15px rgba(32,64,55,.05); }
 .face-photo { width: 52px; height: 52px; border-radius: 12px; overflow: hidden; background: #e8f1ef; color: #52756d; display: grid; place-items: center; font-weight: 800; position: relative; }
-.face-photo img { width: 100%; height: 100%; object-fit: cover; }
 .face-photo i { position: absolute; right: 2px; bottom: 2px; width: 19px; height: 19px; border: 2px solid #fff; border-radius: 50%; background: #14936d; color: #fff; display: grid; place-items: center; }
 .face-card-copy { min-width: 0; display: grid; }
 .face-card-copy strong { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -314,6 +313,7 @@ td strong { color: #26332f; }
 .unregistered-copy { color: #c68020; }
 .face-card-actions { display: flex; gap: 5px; align-items: center; }
 .face-card-actions .icon-button { width: 34px; height: 34px; }
+.face-pagination { border-top-color: #edf1f0; }
 .capture-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(220px, .65fr); gap: 17px; }
 .camera-frame { position: relative; overflow: hidden; border-radius: 13px; background: #14201d; }
 .camera-frame video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
@@ -353,6 +353,8 @@ td strong { color: #26332f; }
 .school-attendance-title > span { width: 39px; height: 39px; border-radius: 10px; flex: 0 0 auto; display: grid; place-items: center; color: var(--primary); background: var(--primary-soft); }
 .school-attendance-title > div { display: grid; }
 .school-attendance-title label { margin: 0; color: #34433f; font-size: 11px; }
+.school-attendance-title strong { display: flex; align-items: center; gap: 5px; margin-top: 3px; color: var(--primary); font-size: 10px; text-transform: capitalize; }
+.school-attendance-title strong svg { width: 13px; }
 .school-attendance-title small { margin-top: 3px; color: #87938f; font-size: 8px; }
 .session-meta { flex: 1; display: flex; align-items: center; gap: 14px; color: #75827f; font-size: 9px; padding-bottom: 10px; }
 .session-meta span:not(.status) { display: flex; gap: 5px; align-items: center; }

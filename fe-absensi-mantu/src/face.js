@@ -9,15 +9,18 @@ export async function loadFaceModels() {
         faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
       ])
       return faceapi
+    }).catch((error) => {
+      faceApiPromise = undefined
+      throw error
     })
   }
   return faceApiPromise
 }
 
-export async function detectFace(video) {
+export async function detectFace(video, inputSize = 320) {
   const faceapi = await loadFaceModels()
   return faceapi
-    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.6 }))
+    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.6 }))
     .withFaceLandmarks()
     .withFaceDescriptor()
 }
@@ -49,7 +52,7 @@ export function videoThumbnail(video) {
 
 export async function openCamera(video) {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 720 } },
+    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } },
     audio: false,
   })
   video.srcObject = stream

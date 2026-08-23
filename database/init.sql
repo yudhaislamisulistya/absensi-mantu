@@ -328,6 +328,41 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION reset_attendance_session(p_session_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_session attendance_sessions;
+BEGIN
+  SELECT * INTO v_session
+  FROM attendance_sessions
+  WHERE id = p_session_id AND attendance_date = CURRENT_DATE;
+
+  IF v_session.id IS NULL THEN
+    RAISE EXCEPTION 'Hanya sesi absensi hari ini yang dapat direset';
+  END IF;
+
+  UPDATE attendance_sessions
+  SET status = 'open', started_at = now(), ended_at = NULL
+  WHERE id = p_session_id
+  RETURNING * INTO v_session;
+
+  UPDATE attendance_records
+  SET status = 'absent', check_in_at = NULL, confidence = NULL, method = 'manual', notes = NULL
+  WHERE session_id = p_session_id;
+
+  INSERT INTO attendance_records (session_id, student_id, class_id, attendance_date, status, method)
+  SELECT v_session.id, student.id, student.class_id, v_session.attendance_date, 'absent', 'manual'
+  FROM students student
+  WHERE student.class_id IS NOT NULL AND student.status = 'active'
+  ON CONFLICT (session_id, student_id) DO NOTHING;
+
+  RETURN to_jsonb(v_session);
+END;
+$$;
+
 INSERT INTO school_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 INSERT INTO app_users (username, password_hash, full_name)
 VALUES ('admin', crypt('123456789', gen_salt('bf', 10)), 'Administrator')
@@ -344,6 +379,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON majors, teachers, classes, students, fac
   attendance_sessions, attendance_records TO app_admin;
 GRANT SELECT, UPDATE ON school_settings TO app_admin;
 GRANT EXECUTE ON FUNCTION change_password(text, text), get_dashboard_summary(),
-  start_attendance_session(), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid) TO app_admin;
+  start_attendance_session(), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid),
+  reset_attendance_session(uuid) TO app_admin;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

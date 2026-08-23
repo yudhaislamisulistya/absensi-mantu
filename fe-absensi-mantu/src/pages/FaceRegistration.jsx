@@ -1,4 +1,4 @@
-import { Camera, Check, CheckCircle2, ImagePlus, RefreshCw, ShieldCheck, Trash2, UserRound, VideoOff } from 'lucide-react'
+import { Camera, Check, CheckCircle2, ChevronLeft, ChevronRight, ImagePlus, RefreshCw, ShieldCheck, Trash2, UserRound, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { detectFace, loadFaceModels, openCamera, stopCamera, videoThumbnail } from '../face'
@@ -36,7 +36,7 @@ function CaptureModal({ student, onClose, onSaved, setToast }) {
     setBusy(true)
     setMessage('Mendeteksi satu wajah...')
     try {
-      const result = await detectFace(videoRef.current)
+      const result = await detectFace(videoRef.current, 224)
       if (!result) {
         setMessage('Wajah belum terdeteksi. Hadap kamera dan perbaiki pencahayaan.')
         return
@@ -91,12 +91,13 @@ export default function FaceRegistration({ setToast }) {
   const [selected, setSelected] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [page, setPage] = useState(1)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const [studentRows, classRows] = await Promise.all([
-        api.get('students?select=id,nis,name,class_id,status,classes(id,name),face_profiles(student_id,sample_count,registered_at,photo_data)&status=eq.active&order=name.asc'),
+        api.get('students?select=id,nis,name,class_id,status,classes(id,name),face_profiles(student_id,sample_count,registered_at)&status=eq.active&order=name.asc'),
         api.get('classes?select=id,name,grade&order=grade,name'),
       ])
       setStudents(studentRows)
@@ -105,6 +106,15 @@ export default function FaceRegistration({ setToast }) {
     finally { setLoading(false) }
   }, [setToast])
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const prepare = () => loadFaceModels().catch(() => {})
+    if (window.requestIdleCallback) {
+      const id = window.requestIdleCallback(prepare, { timeout: 2000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = window.setTimeout(prepare, 400)
+    return () => window.clearTimeout(id)
+  }, [])
 
   const rows = useMemo(() => students.filter((student) => {
     const matchesClass = !classFilter || student.class_id === classFilter
@@ -112,6 +122,11 @@ export default function FaceRegistration({ setToast }) {
     return matchesClass && matchesSearch
   }), [classFilter, search, students])
   const registered = students.filter((student) => student.face_profiles).length
+  const pageSize = 12
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const start = (safePage - 1) * pageSize
+  const visibleRows = rows.slice(start, start + pageSize)
 
   async function removeProfile() {
     setBusy(true)
@@ -134,19 +149,20 @@ export default function FaceRegistration({ setToast }) {
         <div className="privacy-note"><ShieldCheck /><p><strong>Privasi terjaga</strong><span>Template wajah hanya dapat diakses admin.</span></p></div>
       </section>
       <section className="panel face-panel">
-        <div className="table-toolbar"><SearchBox value={search} onChange={setSearch} placeholder="Cari nama atau NIS..." /><select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}><option value="">Semua kelas</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+        <div className="table-toolbar"><SearchBox value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Cari nama atau NIS..." /><select value={classFilter} onChange={(event) => { setClassFilter(event.target.value); setPage(1) }}><option value="">Semua kelas</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
         {loading ? <Loading /> : !rows.length ? <EmptyState title="Siswa tidak ditemukan" text="Periksa pencarian atau tambahkan data siswa terlebih dahulu." /> : (
           <div className="face-card-grid">
-            {rows.map((student) => {
+            {visibleRows.map((student) => {
               const profile = student.face_profiles
               return <article className="face-card" key={student.id}>
-                <div className="face-photo">{profile?.photo_data ? <img src={profile.photo_data} alt={`Wajah ${student.name}`} /> : <span>{initials(student.name)}</span>}{profile && <i><Check size={14} /></i>}</div>
+                <div className="face-photo"><span>{initials(student.name)}</span>{profile && <i><Check size={14} /></i>}</div>
                 <div className="face-card-copy"><strong>{student.name}</strong><small>NIS {student.nis} · {student.classes?.name || 'Tanpa kelas'}</small>{profile ? <p className="registered-copy"><CheckCircle2 size={15} /> {profile.sample_count} sampel · {formatDate(profile.registered_at)}</p> : <p className="unregistered-copy">Wajah belum didaftarkan</p>}</div>
                 <div className="face-card-actions"><button className={`button ${profile ? 'secondary' : 'primary'} small-button`} onClick={() => setSelected(student)}>{profile ? <RefreshCw size={16} /> : <ImagePlus size={16} />}{profile ? 'Daftar ulang' : 'Daftarkan'}</button>{profile && <button className="icon-button delete" title="Hapus profil" onClick={() => setDeleting(student)}><Trash2 size={17} /></button>}</div>
               </article>
             })}
           </div>
         )}
+        {rows.length > pageSize && <div className="table-pagination face-pagination"><span>Menampilkan {start + 1}–{Math.min(start + pageSize, rows.length)} dari {rows.length} siswa</span><div className="pagination-controls"><button type="button" aria-label="Halaman sebelumnya" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}><ChevronLeft size={17} /></button><strong>{safePage} / {totalPages}</strong><button type="button" aria-label="Halaman berikutnya" disabled={safePage === totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight size={17} /></button></div></div>}
       </section>
       {selected && <CaptureModal student={selected} setToast={setToast} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); load() }} />}
       <ConfirmDialog open={!!deleting} title="Hapus profil wajah?" description={`Template wajah “${deleting?.name}” akan dihapus. Siswa harus didaftarkan kembali sebelum menggunakan absensi wajah.`} busy={busy} onClose={() => setDeleting(null)} onConfirm={removeProfile} />

@@ -9,6 +9,7 @@ Sistem administrasi dan absensi siswa berbasis pengenalan wajah. Frontend dibuat
 - Pagination pada tabel data master dan laporan.
 - Registrasi tiga sampel wajah per siswa melalui kamera browser.
 - Satu sesi absensi sekolah per hari di ruang guru dengan skor kecocokan wajah dan pencegahan check-in berulang.
+- Tanggal absensi dan reset sesi hari ini untuk pengujian ulang dengan konfirmasi pengaman.
 - Koreksi status manual: hadir, terlambat, atau tidak hadir.
 - Laporan mingguan, bulanan, dan semester per hari/per siswa/per kelas.
 - Ekspor laporan ke CSV dan tampilan ramah cetak.
@@ -81,6 +82,9 @@ Cadangkan database, lalu jalankan migrasi satu kali sebelum membangun ulang fron
 docker exec -i absensi_mantu_postgres_db \
   psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
   < database/02_schoolwide_attendance.sql
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/03_reset_attendance.sql
 docker compose up -d --build
 ```
 

@@ -1,11 +1,15 @@
-import { CheckCircle2, Play, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
+import { CalendarDays, CheckCircle2, Play, RotateCcw, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { bestMatch, detectFace, loadFaceModels, openCamera, stopCamera } from '../face'
-import { EmptyState, Loading, PageHeader, StatusBadge, formatTime, initials } from '../components/ui'
+import { ConfirmDialog, EmptyState, Loading, PageHeader, StatusBadge, formatTime, initials } from '../components/ui'
 
 function localDate() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+}
+
+function dateLabel(value) {
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' }).format(new Date(`${value}T00:00:00+07:00`))
 }
 
 export default function Attendance({ setToast }) {
@@ -18,6 +22,7 @@ export default function Attendance({ setToast }) {
   const [settings, setSettings] = useState({ face_threshold: 0.5 })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanState, setScanState] = useState({ type: 'idle', message: 'Kamera belum diaktifkan' })
   const videoRef = useRef(null)
@@ -160,6 +165,23 @@ export default function Attendance({ setToast }) {
     }
   }
 
+  async function resetSession() {
+    setBusy(true)
+    try {
+      stopScanner()
+      const value = await api.rpc('reset_attendance_session', { p_session_id: sessionData.id })
+      setSessionData(value)
+      setRecords(await loadRecords(value.id))
+      lastSeenRef.current = {}
+      setResetOpen(false)
+      setToast({ message: 'Absensi hari ini berhasil direset dan sesi dibuka kembali.' })
+    } catch (error) {
+      setToast({ type: 'error', message: error.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const counts = useMemo(() => ({
     present: records.filter((row) => row.status === 'present').length,
     late: records.filter((row) => row.status === 'late').length,
@@ -179,9 +201,10 @@ export default function Attendance({ setToast }) {
     <div className="page">
       <PageHeader eyebrow="KEHADIRAN REAL-TIME" title="Absensi Siswa" description="Satu pos absensi di ruang guru untuk mencatat kehadiran seluruh siswa di sekolah." />
       <section className="attendance-setup panel">
-        <div className="school-attendance-title"><span><Users size={19} /></span><div><label>Absensi sekolah hari ini</label><small>{records.length} siswa aktif dari {classes.length} kelas</small></div></div>
+        <div className="school-attendance-title"><span><Users size={19} /></span><div><label>Absensi sekolah</label><strong><CalendarDays size={14} /> {dateLabel(sessionData?.attendance_date || localDate())}</strong><small>{records.length} siswa aktif dari {classes.length} kelas</small></div></div>
         <div className="session-meta"><span><ScanFace size={17} /> {profiles.length} wajah terdaftar</span>{sessionData && <StatusBadge value={sessionData.status} />}</div>
         {!sessionData && <button className="button primary" disabled={busy} onClick={startSession}><Play size={18} /> {busy ? 'Memulai...' : 'Mulai sesi hari ini'}</button>}
+        {sessionData && <button className="button secondary" disabled={busy} onClick={() => setResetOpen(true)}><RotateCcw size={16} /> Reset absensi</button>}
         {sessionData?.status === 'open' && <button className="button danger-outline" disabled={busy} onClick={closeSession}><Square size={16} /> Selesaikan sesi</button>}
       </section>
 
@@ -212,6 +235,7 @@ export default function Attendance({ setToast }) {
           </section>
         </>
       )}
+      <ConfirmDialog open={resetOpen} title="Reset absensi hari ini?" description="Seluruh status, waktu check-in, dan nilai kecocokan hari ini akan dikosongkan. Semua siswa kembali menjadi tidak hadir dan sesi dibuka lagi untuk pengujian." confirmLabel="Ya, reset absensi" busy={busy} onClose={() => setResetOpen(false)} onConfirm={resetSession} />
     </div>
   )
 }
