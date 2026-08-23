@@ -8,9 +8,11 @@ Sistem administrasi dan absensi siswa berbasis pengenalan wajah. Frontend dibuat
 - Import Excel beserta template XLSX dan validasi untuk seluruh data master.
 - Pagination pada tabel data master dan laporan.
 - Registrasi tiga sampel wajah per siswa melalui kamera browser.
-- Satu sesi absensi sekolah per hari di ruang guru dengan skor kecocokan wajah dan pencegahan check-in berulang.
+- Pengaturan waktu masuk, waktu pulang, dan batas toleransi dari menu admin.
+- Satu sesi absensi sekolah per hari di ruang guru dengan mode wajah masuk/pulang, skor kecocokan, dan pencegahan check-in berulang.
 - Tanggal absensi dan reset sesi hari ini untuk pengujian ulang dengan konfirmasi pengaman.
-- Koreksi status manual: hadir, terlambat, atau tidak hadir.
+- Koreksi status dan pencatatan pulang manual untuk siswa tanpa profil wajah.
+- Filter siswa per kelas lengkap dengan jumlah siswa pada setiap kelas.
 - Laporan mingguan, bulanan, dan semester per hari/per siswa/per kelas.
 - Ekspor laporan ke CSV dan tampilan ramah cetak.
 - Login admin berbasis JWT serta password bcrypt (`pgcrypto`).
@@ -53,9 +55,10 @@ Segera ubah password melalui menu profil → **Ubah password** setelah login per
 2. Tambahkan kelas, kemudian pilih guru wali.
 3. Tambahkan siswa dan tempatkan ke kelas.
 4. Buka **Registrasi Wajah**, pilih siswa, lalu ambil tiga sampel.
-5. Buka **Absensi Siswa** dan mulai satu sesi sekolah untuk hari ini.
-6. Aktifkan kamera di ruang guru; sistem akan mencocokkan wajah dengan seluruh siswa aktif dan tetap menampilkan kelasnya.
-7. Selesaikan sesi dan buka **Laporan** untuk melihat rekap.
+5. Atur jadwal melalui **Pengaturan Waktu**. Batas terlambat adalah waktu masuk + toleransi, sedangkan absensi pulang dibuka pada waktu pulang − toleransi.
+6. Buka **Absensi Siswa**, mulai satu sesi sekolah, lalu pilih mode **Absensi masuk** atau **Absensi pulang** sebelum mengaktifkan kamera.
+7. Sistem mencocokkan wajah dengan seluruh siswa aktif dan tetap menampilkan kelas serta kedua waktu absensinya.
+8. Selesaikan sesi dan buka **Laporan** untuk melihat rekap masuk/pulang.
 
 ## Catatan pengenalan wajah
 
@@ -85,10 +88,13 @@ docker exec -i absensi_mantu_postgres_db \
 docker exec -i absensi_mantu_postgres_db \
   psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
   < database/03_reset_attendance.sql
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/04_entry_exit_attendance.sql
 docker compose up -d --build
 ```
 
-Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi sekolah. Kolom kelas pada catatan kehadiran tetap dipertahankan sebagai snapshot untuk laporan historis.
+Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi sekolah, menambahkan reset pengujian, serta menambahkan jadwal dan absensi pulang. Kolom kelas pada catatan kehadiran tetap dipertahankan sebagai snapshot untuk laporan historis.
 
 ## Data demonstrasi
 

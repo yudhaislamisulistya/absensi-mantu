@@ -1,4 +1,4 @@
-import { CalendarDays, CheckCircle2, Play, RotateCcw, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
+import { CalendarDays, CheckCircle2, LogIn, LogOut, Play, RotateCcw, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import { bestMatch, detectFace, loadFaceModels, openCamera, stopCamera } from '../face'
@@ -12,6 +12,25 @@ function dateLabel(value) {
   return new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' }).format(new Date(`${value}T00:00:00+07:00`))
 }
 
+function timeLabel(value) {
+  return String(value || '--:--').slice(0, 5).replace(':', '.')
+}
+
+function timeMinutes(value) {
+  const [hours, minutes] = String(value || '00:00').slice(0, 5).split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+function shiftedTime(value, offset) {
+  const minutes = (timeMinutes(value) + offset + 1440) % 1440
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}.${String(minutes % 60).padStart(2, '0')}`
+}
+
+function jakartaMinutesNow() {
+  const parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta' }).formatToParts(new Date())
+  return Number(parts.find((part) => part.type === 'hour')?.value || 0) * 60 + Number(parts.find((part) => part.type === 'minute')?.value || 0)
+}
+
 export default function Attendance({ setToast }) {
   const [classes, setClasses] = useState([])
   const [classFilter, setClassFilter] = useState('')
@@ -19,11 +38,12 @@ export default function Attendance({ setToast }) {
   const [sessionData, setSessionData] = useState(null)
   const [records, setRecords] = useState([])
   const [profiles, setProfiles] = useState([])
-  const [settings, setSettings] = useState({ face_threshold: 0.5 })
+  const [settings, setSettings] = useState({ entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15, face_threshold: 0.5 })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const [scanMode, setScanMode] = useState('entry')
   const [scanState, setScanState] = useState({ type: 'idle', message: 'Kamera belum diaktifkan' })
   const videoRef = useRef(null)
   const streamRef = useRef(null)
@@ -40,13 +60,13 @@ export default function Attendance({ setToast }) {
     try {
       const [classRows, settingRows, sessions, faceRows] = await Promise.all([
         api.get('classes?select=id,name,grade&order=grade,name'),
-        api.get('school_settings?select=face_threshold,late_after&id=eq.1'),
+        api.get('school_settings?select=entry_time,exit_time,tolerance_minutes,face_threshold&id=eq.1'),
         api.get(`attendance_sessions?select=*&attendance_date=eq.${localDate()}&limit=1`),
         api.get('face_profiles?select=student_id,descriptors,students!inner(id,nis,name,class_id,status,classes(id,name))&students.status=eq.active&students.class_id=not.is.null'),
       ])
       const current = sessions[0] || null
       setClasses(classRows)
-      setSettings(settingRows[0] || { face_threshold: 0.5 })
+      setSettings(settingRows[0] || { entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15, face_threshold: 0.5 })
       setSessionData(current)
       setProfiles(faceRows)
       setRecords(await loadRecords(current?.id))
@@ -67,6 +87,12 @@ export default function Attendance({ setToast }) {
     streamRef.current = null
     setScanning(false)
     setScanState({ type: 'idle', message: 'Kamera belum diaktifkan' })
+  }
+
+  function changeScanMode(value) {
+    stopScanner()
+    lastSeenRef.current = {}
+    setScanMode(value)
   }
 
   async function startSession() {
@@ -119,13 +145,15 @@ export default function Attendance({ setToast }) {
           return
         }
         const now = Date.now()
-        if (now - (lastSeenRef.current[match.student_id] || 0) < 8000) return
-        lastSeenRef.current[match.student_id] = now
-        const saved = await api.rpc('check_in_face', { p_session_id: sessionData.id, p_student_id: match.student_id, p_distance: match.distance })
+        const seenKey = `${scanMode}:${match.student_id}`
+        if (now - (lastSeenRef.current[seenKey] || 0) < 8000) return
+        lastSeenRef.current[seenKey] = now
+        const rpcName = scanMode === 'entry' ? 'check_in_face' : 'check_out_face'
+        const saved = await api.rpc(rpcName, { p_session_id: sessionData.id, p_student_id: match.student_id, p_distance: match.distance })
         setRecords((current) => current.some((row) => row.id === saved.id)
           ? current.map((row) => row.id === saved.id ? { ...row, ...saved } : row)
           : [...current, { ...saved, students: match.students, classes: match.students.classes }])
-        setScanState({ type: 'success', message: `${match.students.name} berhasil absen`, student: match.students, confidence: saved.confidence })
+        setScanState({ type: 'success', message: `${match.students.name} berhasil absen ${scanMode === 'entry' ? 'masuk' : 'pulang'}`, student: match.students, confidence: scanMode === 'entry' ? saved.confidence : saved.check_out_confidence })
       } catch (error) {
         setScanState({ type: 'error', message: error.message })
       } finally {
@@ -133,7 +161,7 @@ export default function Attendance({ setToast }) {
       }
     }, 1100)
     return () => window.clearInterval(interval)
-  }, [profiles, scanning, sessionData, settings.face_threshold])
+  }, [profiles, scanMode, scanning, sessionData, settings.face_threshold])
 
   async function updateStatus(record, status) {
     try {
@@ -143,9 +171,31 @@ export default function Attendance({ setToast }) {
         method: 'manual',
         confidence: null,
         check_in_at: attended ? new Date().toISOString() : null,
+        check_out_at: attended ? record.check_out_at : null,
+        check_out_confidence: attended ? record.check_out_confidence : null,
+        check_out_method: attended ? record.check_out_method : null,
       })
       setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
       setToast({ message: `Status ${record.students.name} diperbarui.` })
+    } catch (error) {
+      setToast({ type: 'error', message: error.message })
+    }
+  }
+
+  async function updateCheckout(record) {
+    const earliestExit = timeMinutes(settings.exit_time) - Number(settings.tolerance_minutes || 0)
+    if (jakartaMinutesNow() < earliestExit) {
+      setToast({ type: 'error', message: `Absensi pulang baru dapat dilakukan mulai pukul ${shiftedTime(settings.exit_time, -Number(settings.tolerance_minutes || 0))}.` })
+      return
+    }
+    try {
+      const updated = await api.update('attendance_records', record.id, {
+        check_out_at: new Date().toISOString(),
+        check_out_confidence: null,
+        check_out_method: 'manual',
+      })
+      setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
+      setToast({ message: `Absensi pulang ${record.students.name} berhasil dicatat manual.` })
     } catch (error) {
       setToast({ type: 'error', message: error.message })
     }
@@ -186,6 +236,7 @@ export default function Attendance({ setToast }) {
     present: records.filter((row) => row.status === 'present').length,
     late: records.filter((row) => row.status === 'late').length,
     absent: records.filter((row) => row.status === 'absent').length,
+    checkedOut: records.filter((row) => row.check_out_at).length,
   }), [records])
 
   const filteredRecords = useMemo(() => records.filter((record) => {
@@ -202,7 +253,7 @@ export default function Attendance({ setToast }) {
       <PageHeader eyebrow="KEHADIRAN REAL-TIME" title="Absensi Siswa" description="Satu pos absensi di ruang guru untuk mencatat kehadiran seluruh siswa di sekolah." />
       <section className="attendance-setup panel">
         <div className="school-attendance-title"><span><Users size={19} /></span><div><label>Absensi sekolah</label><strong><CalendarDays size={14} /> {dateLabel(sessionData?.attendance_date || localDate())}</strong><small>{records.length} siswa aktif dari {classes.length} kelas</small></div></div>
-        <div className="session-meta"><span><ScanFace size={17} /> {profiles.length} wajah terdaftar</span>{sessionData && <StatusBadge value={sessionData.status} />}</div>
+        <div className="session-meta"><span><ScanFace size={17} /> {profiles.length} wajah terdaftar</span><span>{timeLabel(settings.entry_time)}–{timeLabel(settings.exit_time)} · toleransi {settings.tolerance_minutes} menit</span>{sessionData && <StatusBadge value={sessionData.status} />}</div>
         {!sessionData && <button className="button primary" disabled={busy} onClick={startSession}><Play size={18} /> {busy ? 'Memulai...' : 'Mulai sesi hari ini'}</button>}
         {sessionData && <button className="button secondary" disabled={busy} onClick={() => setResetOpen(true)}><RotateCcw size={16} /> Reset absensi</button>}
         {sessionData?.status === 'open' && <button className="button danger-outline" disabled={busy} onClick={closeSession}><Square size={16} /> Selesaikan sesi</button>}
@@ -210,32 +261,34 @@ export default function Attendance({ setToast }) {
 
       {!sessionData ? <div className="panel"><EmptyState title="Belum ada sesi absensi hari ini" text="Mulai sesi untuk menyiapkan status seluruh siswa aktif di sekolah." /></div> : (
         <>
-          <section className="attendance-stats attendance-stats-three">
+          <section className="attendance-stats">
             <div><span className="dot present" /><p>Hadir<strong>{counts.present}</strong></p></div>
             <div><span className="dot late" /><p>Terlambat<strong>{counts.late}</strong></p></div>
             <div><span className="dot absent" /><p>Tidak hadir<strong>{counts.absent}</strong></p></div>
+            <div><span className="dot checked-out" /><p>Sudah pulang<strong>{counts.checkedOut}</strong></p></div>
           </section>
           <section className="scanner-grid">
             <article className="panel scanner-panel">
               <div className="panel-heading"><div><p className="eyebrow">POS RUANG GURU</p><h2>Pemindai wajah</h2></div>{scanning && <span className="live-badge"><i /> LIVE</span>}</div>
+              <div className="scanner-mode" role="group" aria-label="Jenis absensi"><button type="button" className={scanMode === 'entry' ? 'active' : ''} onClick={() => changeScanMode('entry')}><LogIn /> <span>Absensi masuk<small>Tepat waktu s.d. {shiftedTime(settings.entry_time, Number(settings.tolerance_minutes || 0))}</small></span></button><button type="button" className={scanMode === 'exit' ? 'active' : ''} onClick={() => changeScanMode('exit')}><LogOut /> <span>Absensi pulang<small>Mulai {shiftedTime(settings.exit_time, -Number(settings.tolerance_minutes || 0))}</small></span></button></div>
               <div className="camera-frame attendance-camera">
                 <video ref={videoRef} muted playsInline />
                 {scanning && <div className="scan-line" />}
-                {!scanning && <div className="camera-placeholder"><VideoOff /><strong>Kamera nonaktif</strong><span>Aktifkan kamera untuk mulai mengenali wajah siswa.</span></div>}
+                {!scanning && <div className="camera-placeholder"><VideoOff /><strong>Kamera nonaktif</strong><span>Aktifkan kamera untuk absensi {scanMode === 'entry' ? 'masuk' : 'pulang'}.</span></div>}
                 {scanning && <div className={`recognition-toast recognition-${scanState.type}`}>{scanState.type === 'success' ? <CheckCircle2 /> : <ScanFace />}<div><strong>{scanState.message}</strong>{scanState.student?.classes?.name && <small>{scanState.student.classes.name} · kecocokan {Number(scanState.confidence).toFixed(1)}%</small>}</div></div>}
               </div>
-              <div className="scanner-controls">{!scanning ? <button className="button primary" disabled={sessionData.status !== 'open' || busy} onClick={startScanner}><Video size={18} /> {busy ? 'Menyiapkan model...' : 'Aktifkan kamera'}</button> : <button className="button secondary" onClick={stopScanner}><VideoOff size={18} /> Matikan kamera</button>}<span>Ambang kecocokan {Math.round(Number(settings.face_threshold) * 100)}%</span></div>
+              <div className="scanner-controls">{!scanning ? <button className="button primary" disabled={sessionData.status !== 'open' || busy} onClick={startScanner}><Video size={18} /> {busy ? 'Menyiapkan model...' : `Aktifkan kamera ${scanMode === 'entry' ? 'masuk' : 'pulang'}`}</button> : <button className="button secondary" onClick={stopScanner}><VideoOff size={18} /> Matikan kamera</button>}<span>Ambang kecocokan {Math.round(Number(settings.face_threshold) * 100)}%</span></div>
             </article>
 
             <article className="panel attendance-list-panel">
               <div className="panel-heading"><div><p className="eyebrow">DAFTAR SISWA</p><h2>Kehadiran sekolah</h2></div><span className="panel-badge">{counts.present + counts.late}/{records.length} hadir</span></div>
               <div className="attendance-filters"><label className="search-box"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau NIS..." /></label><select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option value="">Semua kelas</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
-              {!filteredRecords.length ? <EmptyState title="Siswa tidak ditemukan" text="Ubah kata kunci atau filter kelas." /> : <div className="attendance-list">{filteredRecords.map((record) => <div className="attendance-row" key={record.id}><span className="avatar small student">{initials(record.students.name)}</span><div><strong>{record.students.name}</strong><small>{record.classes?.name || 'Tanpa kelas'} · {record.check_in_at ? `${formatTime(record.check_in_at)} · ${record.method === 'face' ? `Wajah ${Number(record.confidence).toFixed(0)}%` : 'Manual'}` : `NIS ${record.students.nis}`}</small></div><select value={record.status} disabled={sessionData.status === 'closed'} className={`status-select status-select-${record.status}`} onChange={(event) => updateStatus(record, event.target.value)}><option value="present">Hadir</option><option value="late">Terlambat</option><option value="absent">Tidak hadir</option></select></div>)}</div>}
+              {!filteredRecords.length ? <EmptyState title="Siswa tidak ditemukan" text="Ubah kata kunci atau filter kelas." /> : <div className="attendance-list">{filteredRecords.map((record) => <div className="attendance-row" key={record.id}><span className="avatar small student">{initials(record.students.name)}</span><div><strong>{record.students.name}</strong><small>{record.classes?.name || 'Tanpa kelas'} · NIS {record.students.nis}</small><small className="attendance-times"><span><LogIn /> {record.check_in_at ? formatTime(record.check_in_at) : '--:--'}</span><span><LogOut /> {record.check_out_at ? formatTime(record.check_out_at) : '--:--'}</span></small></div><div className="attendance-row-actions"><select value={record.status} disabled={sessionData.status === 'closed'} className={`status-select status-select-${record.status}`} onChange={(event) => updateStatus(record, event.target.value)}><option value="present">Hadir</option><option value="late">Terlambat</option><option value="absent">Tidak hadir</option></select>{record.check_out_at ? <span className="checkout-done"><CheckCircle2 /> Sudah pulang</span> : <button type="button" className="checkout-button" disabled={sessionData.status === 'closed' || !record.check_in_at || !['present', 'late'].includes(record.status)} onClick={() => updateCheckout(record)}><LogOut /> Catat pulang</button>}</div></div>)}</div>}
             </article>
           </section>
         </>
       )}
-      <ConfirmDialog open={resetOpen} title="Reset absensi hari ini?" description="Seluruh status, waktu check-in, dan nilai kecocokan hari ini akan dikosongkan. Semua siswa kembali menjadi tidak hadir dan sesi dibuka lagi untuk pengujian." confirmLabel="Ya, reset absensi" busy={busy} onClose={() => setResetOpen(false)} onConfirm={resetSession} />
+      <ConfirmDialog open={resetOpen} title="Reset absensi hari ini?" description="Seluruh status, waktu masuk, waktu pulang, dan nilai kecocokan hari ini akan dikosongkan. Semua siswa kembali menjadi tidak hadir dan sesi dibuka lagi untuk pengujian." confirmLabel="Ya, reset absensi" busy={busy} onClose={() => setResetOpen(false)} onConfirm={resetSession} />
     </div>
   )
 }

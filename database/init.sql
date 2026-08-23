@@ -87,8 +87,11 @@ CREATE TABLE face_profiles (
 CREATE TABLE school_settings (
   id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   school_name varchar(150) NOT NULL DEFAULT 'SMA Mantu',
-  late_after time NOT NULL DEFAULT '07:30:00',
+  entry_time time NOT NULL DEFAULT '07:00:00',
+  exit_time time NOT NULL DEFAULT '15:00:00',
+  tolerance_minutes smallint NOT NULL DEFAULT 15 CHECK (tolerance_minutes BETWEEN 0 AND 180),
   face_threshold numeric(4,3) NOT NULL DEFAULT 0.500 CHECK (face_threshold BETWEEN 0.300 AND 0.650),
+  CONSTRAINT school_settings_time_order_check CHECK (exit_time > entry_time),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -112,6 +115,9 @@ CREATE TABLE attendance_records (
   check_in_at timestamptz,
   confidence numeric(5,2) CHECK (confidence BETWEEN 0 AND 100),
   method varchar(20) NOT NULL DEFAULT 'manual' CHECK (method IN ('face', 'manual')),
+  check_out_at timestamptz,
+  check_out_confidence numeric(5,2) CHECK (check_out_confidence BETWEEN 0 AND 100),
+  check_out_method varchar(20) CHECK (check_out_method IN ('face', 'manual')),
   notes text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -271,7 +277,8 @@ AS $$
 DECLARE
   v_session attendance_sessions;
   v_threshold numeric;
-  v_late_after time;
+  v_entry_time time;
+  v_tolerance_minutes smallint;
   v_record attendance_records;
   v_status text;
   v_class_id uuid;
@@ -286,11 +293,24 @@ BEGIN
     RAISE EXCEPTION 'Siswa aktif dengan kelas yang valid tidak ditemukan';
   END IF;
 
-  SELECT face_threshold, late_after INTO v_threshold, v_late_after FROM school_settings WHERE id = 1;
+  SELECT * INTO v_record
+  FROM attendance_records
+  WHERE session_id = p_session_id AND student_id = p_student_id
+  FOR UPDATE;
+  IF v_record.check_in_at IS NOT NULL THEN
+    RETURN to_jsonb(v_record);
+  END IF;
+
+  SELECT face_threshold, entry_time, tolerance_minutes
+  INTO v_threshold, v_entry_time, v_tolerance_minutes
+  FROM school_settings WHERE id = 1;
   IF p_distance > v_threshold THEN
     RAISE EXCEPTION 'Tingkat kecocokan wajah belum memenuhi batas';
   END IF;
-  v_status := CASE WHEN localtime > v_late_after THEN 'late' ELSE 'present' END;
+  v_status := CASE
+    WHEN localtime > v_entry_time + make_interval(mins => v_tolerance_minutes) THEN 'late'
+    ELSE 'present'
+  END;
 
   INSERT INTO attendance_records (
     session_id, student_id, class_id, attendance_date, status, check_in_at, confidence, method
@@ -304,6 +324,64 @@ BEGIN
     check_in_at = EXCLUDED.check_in_at,
     confidence = EXCLUDED.confidence,
     method = 'face'
+  RETURNING * INTO v_record;
+
+  RETURN to_jsonb(v_record);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION check_out_face(p_session_id uuid, p_student_id uuid, p_distance numeric)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_session attendance_sessions;
+  v_threshold numeric;
+  v_exit_time time;
+  v_tolerance_minutes smallint;
+  v_record attendance_records;
+  v_earliest_exit time;
+BEGIN
+  SELECT * INTO v_session FROM attendance_sessions WHERE id = p_session_id;
+  IF v_session.id IS NULL OR v_session.status <> 'open' THEN
+    RAISE EXCEPTION 'Sesi absensi tidak aktif';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM students
+    WHERE id = p_student_id AND class_id IS NOT NULL AND status = 'active'
+  ) THEN
+    RAISE EXCEPTION 'Siswa aktif dengan kelas yang valid tidak ditemukan';
+  END IF;
+
+  SELECT face_threshold, exit_time, tolerance_minutes
+  INTO v_threshold, v_exit_time, v_tolerance_minutes
+  FROM school_settings WHERE id = 1;
+  IF p_distance > v_threshold THEN
+    RAISE EXCEPTION 'Tingkat kecocokan wajah belum memenuhi batas';
+  END IF;
+
+  SELECT * INTO v_record
+  FROM attendance_records
+  WHERE session_id = p_session_id AND student_id = p_student_id
+  FOR UPDATE;
+  IF v_record.id IS NULL OR v_record.check_in_at IS NULL OR v_record.status NOT IN ('present', 'late') THEN
+    RAISE EXCEPTION 'Siswa belum melakukan absensi masuk';
+  END IF;
+  IF v_record.check_out_at IS NOT NULL THEN
+    RETURN to_jsonb(v_record);
+  END IF;
+
+  v_earliest_exit := v_exit_time - make_interval(mins => v_tolerance_minutes);
+  IF localtime < v_earliest_exit THEN
+    RAISE EXCEPTION 'Absensi pulang baru dapat dilakukan mulai pukul %', to_char(v_earliest_exit, 'HH24:MI');
+  END IF;
+
+  UPDATE attendance_records
+  SET check_out_at = now(),
+      check_out_confidence = round(greatest(0, least(100, (1 - p_distance) * 100)), 2),
+      check_out_method = 'face'
+  WHERE id = v_record.id
   RETURNING * INTO v_record;
 
   RETURN to_jsonb(v_record);
@@ -350,7 +428,8 @@ BEGIN
   RETURNING * INTO v_session;
 
   UPDATE attendance_records
-  SET status = 'absent', check_in_at = NULL, confidence = NULL, method = 'manual', notes = NULL
+  SET status = 'absent', check_in_at = NULL, confidence = NULL, method = 'manual',
+      check_out_at = NULL, check_out_confidence = NULL, check_out_method = NULL, notes = NULL
   WHERE session_id = p_session_id;
 
   INSERT INTO attendance_records (session_id, student_id, class_id, attendance_date, status, method)
@@ -380,6 +459,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON majors, teachers, classes, students, fac
 GRANT SELECT, UPDATE ON school_settings TO app_admin;
 GRANT EXECUTE ON FUNCTION change_password(text, text), get_dashboard_summary(),
   start_attendance_session(), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid),
-  reset_attendance_session(uuid) TO app_admin;
+  check_out_face(uuid, uuid, numeric), reset_attendance_session(uuid) TO app_admin;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

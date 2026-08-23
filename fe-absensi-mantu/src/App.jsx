@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import FaceRegistration from './pages/FaceRegistration'
 import Login from './pages/Login'
 import Reports from './pages/Reports'
+import SettingsPage from './pages/Settings'
 
 function validPage() {
   const hash = window.location.hash.replace('#', '')
@@ -74,6 +75,7 @@ export default function App() {
     faces: <FaceRegistration setToast={setToast} />,
     attendance: <Attendance setToast={setToast} />,
     reports: <Reports setToast={setToast} />,
+    settings: <SettingsPage setToast={setToast} />,
   }
 
   return <><Shell page={page} setPage={setPage} user={auth.user} onLogout={logout} onChangePassword={() => setPasswordOpen(true)}>{pages[page] || pages.dashboard}</Shell><ChangePassword open={passwordOpen} onClose={() => setPasswordOpen(false)} setToast={setToast} /><Toast toast={toast} onClose={() => setToastState(null)} /></>

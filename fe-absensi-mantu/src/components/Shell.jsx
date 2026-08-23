@@ -1,5 +1,5 @@
 import {
-  BarChart3, BookOpen, Building2, Camera, ChevronDown, GraduationCap, Home,
+  BarChart3, BookOpen, Building2, Camera, ChevronDown, Clock, GraduationCap, Home,
   LogOut, Menu, School, Settings, ShieldCheck, UserCog, Users, X,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -17,6 +17,8 @@ export const navigation = [
   { id: 'faces', label: 'Registrasi Wajah', icon: Camera },
   { id: 'attendance', label: 'Absensi Siswa', icon: ShieldCheck },
   { id: 'reports', label: 'Laporan', icon: BarChart3 },
+  { section: 'Sistem' },
+  { id: 'settings', label: 'Pengaturan Waktu', icon: Clock },
 ]
 
 export default function Shell({ page, setPage, user, onLogout, onChangePassword, children }) {

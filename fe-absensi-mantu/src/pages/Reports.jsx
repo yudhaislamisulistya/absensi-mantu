@@ -61,7 +61,7 @@ export default function Reports({ setToast }) {
     }
     setLoading(true)
     try {
-      let query = `attendance_records?select=attendance_date,status,check_in_at,method,confidence,student_id,class_id,students(id,nis,name),classes(id,name)&attendance_date=gte.${startDate}&attendance_date=lte.${endDate}`
+      let query = `attendance_records?select=attendance_date,status,check_in_at,check_out_at,method,confidence,student_id,class_id,students(id,nis,name),classes(id,name)&attendance_date=gte.${startDate}&attendance_date=lte.${endDate}`
       if (classId) query += `&class_id=eq.${classId}`
       if (studentId) query += `&student_id=eq.${studentId}`
       query += '&order=attendance_date.asc'
@@ -77,6 +77,7 @@ export default function Reports({ setToast }) {
   const summary = useMemo(() => {
     const result = Object.fromEntries(statusKeys.map((key) => [key, records.filter((row) => row.status === key).length]))
     result.total = records.length
+    result.checkedOut = records.filter((row) => row.check_out_at).length
     result.attendanceRate = records.length ? Math.round(((result.present + result.late) / records.length) * 100) : 0
     return result
   }, [records])
@@ -100,10 +101,11 @@ export default function Reports({ setToast }) {
         name = formatDate(`${record.attendance_date}T00:00:00`)
         sub = 'Rekap sekolah'
       }
-      if (!map.has(key)) map.set(key, { id: key, name, sub, total: 0, present: 0, late: 0, absent: 0 })
+      if (!map.has(key)) map.set(key, { id: key, name, sub, total: 0, present: 0, late: 0, absent: 0, checkedOut: 0 })
       const row = map.get(key)
       row.total += 1
       row[record.status] += 1
+      if (record.check_out_at) row.checkedOut += 1
     }
     return [...map.values()]
       .map((row) => ({ ...row, rate: row.total ? Math.round(((row.present + row.late) / row.total) * 100) : 0 }))
@@ -112,8 +114,8 @@ export default function Reports({ setToast }) {
 
   function exportCsv() {
     if (!grouped.length) return
-    const header = ['Nama', 'Identitas', 'Total Catatan', 'Hadir', 'Terlambat', 'Tidak Hadir', 'Persentase Kehadiran']
-    const values = grouped.map((row) => [row.name, row.sub, row.total, row.present, row.late, row.absent, `${row.rate}%`])
+    const header = ['Nama', 'Identitas', 'Total Catatan', 'Hadir', 'Terlambat', 'Tidak Hadir', 'Sudah Absen Pulang', 'Persentase Kehadiran']
+    const values = grouped.map((row) => [row.name, row.sub, row.total, row.present, row.late, row.absent, row.checkedOut, `${row.rate}%`])
     const csv = [header, ...values].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n')
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }))
@@ -129,6 +131,7 @@ export default function Reports({ setToast }) {
     { key: 'name', label: subjectLabel, render: (row) => <div><strong>{row.name}</strong><small className="block">{row.sub}</small></div> },
     { key: 'total', label: totalLabel },
     ...statusKeys.map((key) => ({ key, label: statusLabels[key], render: (row) => <span className={`report-number report-${key}`}>{row[key]}</span> })),
+    { key: 'checkedOut', label: 'Absen pulang', render: (row) => <span className="report-number report-checked-out">{row.checkedOut}</span> },
     { key: 'rate', label: 'Kehadiran', render: (row) => <div className="rate-cell"><strong>{row.rate}%</strong><span><i style={{ width: `${row.rate}%` }} /></span></div> },
   ]
 
@@ -149,9 +152,10 @@ export default function Reports({ setToast }) {
       {generated && (
         <>
           <section className="report-heading-print"><h2>Laporan Kehadiran Sekolah</h2><p>Periode {formatDate(`${startDate}T00:00:00`)} – {formatDate(`${endDate}T00:00:00`)}</p></section>
-          <section className="report-summary report-summary-four">
+          <section className="report-summary report-summary-five">
             <article><span className="stat-icon teal"><BarChart3 /></span><p>Persentase hadir<strong>{summary.attendanceRate}%</strong><small>{summary.present + summary.late} dari {summary.total} catatan siswa</small></p></article>
             {statusKeys.map((key) => <article key={key}><span className={`summary-dot ${key}`} /><p>{statusLabels[key]}<strong>{summary[key]}</strong><small>catatan siswa</small></p></article>)}
+            <article><span className="summary-dot checked-out" /><p>Sudah absen pulang<strong>{summary.checkedOut}</strong><small>catatan siswa</small></p></article>
           </section>
           <section className="panel table-panel report-table-panel">
             <div className="table-toolbar"><div><p className="eyebrow">HASIL REKAP</p><h2>Rincian kehadiran</h2></div><select value={viewBy} onChange={(event) => setViewBy(event.target.value)}><option value="student">Tampilkan per siswa</option><option value="class">Tampilkan per kelas</option><option value="date">Tampilkan per hari</option></select></div>

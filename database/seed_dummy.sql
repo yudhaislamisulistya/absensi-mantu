@@ -159,7 +159,7 @@ INSERT INTO attendance_sessions (
 SELECT
   d.attendance_date,
   (d.attendance_date + time '06:55') AT TIME ZONE 'Asia/Jakarta',
-  (d.attendance_date + time '08:00') AT TIME ZONE 'Asia/Jakarta',
+  (d.attendance_date + time '15:30') AT TIME ZONE 'Asia/Jakarta',
   'closed',
   a.id
 FROM school_days d CROSS JOIN admin a
@@ -190,7 +190,8 @@ WITH seed_rows AS (
 )
 INSERT INTO attendance_records (
   session_id, student_id, class_id, attendance_date, status,
-  check_in_at, confidence, method, notes
+  check_in_at, confidence, method,
+  check_out_at, check_out_confidence, check_out_method, notes
 )
 SELECT
   session_id,
@@ -211,6 +212,20 @@ SELECT
     THEN 'face'
     ELSE 'manual'
   END,
+  CASE WHEN attendance_status IN ('present', 'late')
+    THEN ((attendance_date + time '14:50') AT TIME ZONE 'Asia/Jakarta')
+      + ((bucket % 36) || ' minutes')::interval
+    ELSE NULL
+  END,
+  CASE WHEN attendance_status IN ('present', 'late') AND has_face AND bucket % 10 < 8
+    THEN round((92 + bucket % 7 + 0.10)::numeric, 2)
+    ELSE NULL
+  END,
+  CASE WHEN attendance_status IN ('present', 'late') AND has_face AND bucket % 10 < 8
+    THEN 'face'
+    WHEN attendance_status IN ('present', 'late') THEN 'manual'
+    ELSE NULL
+  END,
   CASE attendance_status
     WHEN 'absent' THEN 'Data dummy: tidak hadir di sekolah'
     ELSE NULL
@@ -221,6 +236,9 @@ ON CONFLICT (session_id, student_id) DO UPDATE SET
   check_in_at = EXCLUDED.check_in_at,
   confidence = EXCLUDED.confidence,
   method = EXCLUDED.method,
+  check_out_at = EXCLUDED.check_out_at,
+  check_out_confidence = EXCLUDED.check_out_confidence,
+  check_out_method = EXCLUDED.check_out_method,
   notes = EXCLUDED.notes;
 
 WITH admin AS (
@@ -262,7 +280,8 @@ WITH today_students AS (
 )
 INSERT INTO attendance_records (
   session_id, student_id, class_id, attendance_date, status,
-  check_in_at, confidence, method, notes
+  check_in_at, confidence, method,
+  check_out_at, check_out_confidence, check_out_method, notes
 )
 SELECT
   session_id,
@@ -277,6 +296,9 @@ SELECT
   END,
   CASE WHEN attendance_status IN ('present', 'late') AND has_face THEN round((91 + mod(number, 20) * 0.35)::numeric, 2) ELSE NULL END,
   CASE WHEN attendance_status IN ('present', 'late') AND has_face THEN 'face' ELSE 'manual' END,
+  NULL,
+  NULL,
+  NULL,
   CASE attendance_status
     WHEN 'absent' THEN 'Data dummy: tidak hadir di sekolah'
     ELSE NULL
@@ -287,6 +309,9 @@ ON CONFLICT (session_id, student_id) DO UPDATE SET
   check_in_at = EXCLUDED.check_in_at,
   confidence = EXCLUDED.confidence,
   method = EXCLUDED.method,
+  check_out_at = EXCLUDED.check_out_at,
+  check_out_confidence = EXCLUDED.check_out_confidence,
+  check_out_method = EXCLUDED.check_out_method,
   notes = EXCLUDED.notes;
 
 DO $$
