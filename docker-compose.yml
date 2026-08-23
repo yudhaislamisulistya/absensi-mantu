@@ -1,0 +1,67 @@
+services:
+  absensi_mantu_database:
+    image: postgres:15-alpine
+    container_name: absensi_mantu_postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      APP_JWT_SECRET: ${APP_JWT_SECRET}
+      TZ: Asia/Jakarta
+    ports:
+      - "${POSTGRES_HOST_PORT:-5452}:5432"
+    volumes:
+      - absensi_mantu_postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+      - ./database/10_set_jwt_secret.sh:/docker-entrypoint-initdb.d/10_set_jwt_secret.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [absensi_mantu_network]
+
+  absensi_mantu_api:
+    image: postgrest/postgrest:v14.12
+    container_name: absensi_mantu_postgrest_api
+    restart: unless-stopped
+    depends_on:
+      absensi_mantu_database:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@absensi_mantu_database:5432/${POSTGRES_DB}
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: web_anon
+      PGRST_JWT_SECRET: ${APP_JWT_SECRET}
+      PGRST_SERVER_PORT: 3000
+      PGRST_DB_MAX_ROWS: 10000
+    ports:
+      - "${POSTGREST_HOST_PORT:-8108}:3000"
+    networks: [absensi_mantu_network]
+
+  absensi_mantu_frontend:
+    build:
+      context: ./fe-absensi-mantu
+    image: absensi_mantu_frontend:latest
+    container_name: absensi_mantu_frontend
+    restart: unless-stopped
+    depends_on: [absensi_mantu_api]
+    environment:
+      PGRST_UPSTREAM: http://absensi_mantu_api:3000
+      NGINX_ENVSUBST_FILTER: PGRST_UPSTREAM
+    ports:
+      - "${FRONTEND_PORT:-7109}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [absensi_mantu_network]
+
+volumes:
+  absensi_mantu_postgres_data:
+
+networks:
+  absensi_mantu_network:
+    driver: bridge
