@@ -70,3 +70,18 @@ npm run dev
 ```
 
 Vite akan mem-proxy `/api` ke `http://localhost:8108`. Build produksi dibuat dengan `npm run build`.
+
+## Data demonstrasi
+
+Seed berikut mengisi 4 jurusan, 12 guru, 8 kelas beserta guru wali, 64 siswa,
+48 profil wajah sintetis, serta riwayat absensi semester berjalan:
+
+```bash
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/seed_dummy.sql
+```
+
+Seed bersifat idempotent dan dapat dijalankan ulang. NIP/NIS demonstrasi memakai
+awalan `DMY-`. Descriptor wajah pada seed hanya untuk pratinjau; daftarkan ulang
+wajah siswa melalui kamera sebelum menggunakan data sebagai absensi nyata.
