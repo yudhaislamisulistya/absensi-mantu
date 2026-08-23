@@ -1,4 +1,5 @@
-import { AlertTriangle, Inbox, LoaderCircle, Search, X } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Inbox, LoaderCircle, Search, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
 export function PageHeader({ eyebrow, title, description, action }) {
   return (
@@ -60,19 +61,41 @@ export function ConfirmDialog({ open, title = 'Hapus data?', description, busy, 
 }
 
 export function DataTable({ columns, rows, loading, emptyTitle = 'Belum ada data', emptyText = 'Tambahkan data untuk memulai.' }) {
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const start = (safePage - 1) * pageSize
+  const visibleRows = rows.slice(start, start + pageSize)
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
   if (loading) return <Loading />
   if (!rows.length) return <EmptyState title={emptyTitle} text={emptyText} />
   return (
-    <div className="table-wrap">
-      <table>
-        <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.id}>{columns.map((column) => <td key={column.key} data-label={column.label}>{column.render ? column.render(row) : row[column.key]}</td>)}</tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div className="table-wrap">
+        <table>
+          <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead>
+          <tbody>
+            {visibleRows.map((row) => (
+              <tr key={row.id}>{columns.map((column) => <td key={column.key} data-label={column.label}>{column.render ? column.render(row) : row[column.key]}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-pagination">
+        <span>Menampilkan {start + 1}–{Math.min(start + pageSize, rows.length)} dari {rows.length} data</span>
+        <label>Baris<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1) }}><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>
+        <div className="pagination-controls">
+          <button type="button" aria-label="Halaman sebelumnya" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}><ChevronLeft size={17} /></button>
+          <strong>{safePage} / {totalPages}</strong>
+          <button type="button" aria-label="Halaman berikutnya" disabled={safePage === totalPages} onClick={() => setPage(safePage + 1)}><ChevronRight size={17} /></button>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -87,7 +110,7 @@ export function EmptyState({ title, text }) {
 export function StatusBadge({ value }) {
   const labels = {
     active: 'Aktif', inactive: 'Nonaktif', graduated: 'Lulus', open: 'Berjalan', closed: 'Selesai',
-    present: 'Hadir', late: 'Terlambat', sick: 'Sakit', excused: 'Izin', absent: 'Alfa', face: 'Wajah', manual: 'Manual',
+    present: 'Hadir', late: 'Terlambat', absent: 'Tidak hadir', face: 'Wajah', manual: 'Manual',
   }
   return <span className={`status status-${value}`}>{labels[value] || value || '-'}</span>
 }

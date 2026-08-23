@@ -15,7 +15,7 @@ export const navigation = [
   { id: 'homeroom', label: 'Guru Wali', icon: UserCog },
   { section: 'Kehadiran' },
   { id: 'faces', label: 'Registrasi Wajah', icon: Camera },
-  { id: 'attendance', label: 'Absensi Kelas', icon: ShieldCheck },
+  { id: 'attendance', label: 'Absensi Siswa', icon: ShieldCheck },
   { id: 'reports', label: 'Laporan', icon: BarChart3 },
 ]
 

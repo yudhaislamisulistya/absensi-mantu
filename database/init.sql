@@ -94,14 +94,12 @@ CREATE TABLE school_settings (
 
 CREATE TABLE attendance_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  class_id uuid NOT NULL REFERENCES classes(id) ON DELETE RESTRICT,
-  attendance_date date NOT NULL DEFAULT CURRENT_DATE,
+  attendance_date date NOT NULL DEFAULT CURRENT_DATE UNIQUE,
   started_at timestamptz NOT NULL DEFAULT now(),
   ended_at timestamptz,
   status varchar(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
   created_by uuid REFERENCES app_users(id) ON DELETE SET NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (class_id, attendance_date)
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE attendance_records (
@@ -110,7 +108,7 @@ CREATE TABLE attendance_records (
   student_id uuid NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
   class_id uuid NOT NULL REFERENCES classes(id) ON DELETE RESTRICT,
   attendance_date date NOT NULL DEFAULT CURRENT_DATE,
-  status varchar(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present', 'late', 'sick', 'excused', 'absent')),
+  status varchar(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present', 'late', 'absent')),
   check_in_at timestamptz,
   confidence numeric(5,2) CHECK (confidence BETWEEN 0 AND 100),
   method varchar(20) NOT NULL DEFAULT 'manual' CHECK (method IN ('face', 'manual')),
@@ -240,7 +238,7 @@ AS $$
   );
 $$;
 
-CREATE OR REPLACE FUNCTION start_attendance_session(p_class_id uuid)
+CREATE OR REPLACE FUNCTION start_attendance_session()
 RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public, pg_temp
@@ -249,20 +247,16 @@ DECLARE
   v_session attendance_sessions;
   v_user_id uuid := nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'), '')::uuid;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM classes WHERE id = p_class_id) THEN
-    RAISE EXCEPTION 'Kelas tidak ditemukan';
-  END IF;
-
-  INSERT INTO attendance_sessions (class_id, created_by)
-  VALUES (p_class_id, v_user_id)
-  ON CONFLICT (class_id, attendance_date)
+  INSERT INTO attendance_sessions (created_by)
+  VALUES (v_user_id)
+  ON CONFLICT (attendance_date)
   DO UPDATE SET status = CASE WHEN attendance_sessions.status = 'closed' THEN 'closed' ELSE 'open' END
   RETURNING * INTO v_session;
 
   INSERT INTO attendance_records (session_id, student_id, class_id, attendance_date, status, method)
-  SELECT v_session.id, s.id, p_class_id, v_session.attendance_date, 'absent', 'manual'
+  SELECT v_session.id, s.id, s.class_id, v_session.attendance_date, 'absent', 'manual'
   FROM students s
-  WHERE s.class_id = p_class_id AND s.status = 'active'
+  WHERE s.class_id IS NOT NULL AND s.status = 'active'
   ON CONFLICT (session_id, student_id) DO NOTHING;
 
   RETURN to_jsonb(v_session);
@@ -280,13 +274,16 @@ DECLARE
   v_late_after time;
   v_record attendance_records;
   v_status text;
+  v_class_id uuid;
 BEGIN
   SELECT * INTO v_session FROM attendance_sessions WHERE id = p_session_id;
   IF v_session.id IS NULL OR v_session.status <> 'open' THEN
     RAISE EXCEPTION 'Sesi absensi tidak aktif';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM students WHERE id = p_student_id AND class_id = v_session.class_id AND status = 'active') THEN
-    RAISE EXCEPTION 'Siswa tidak terdaftar di kelas ini';
+  SELECT class_id INTO v_class_id FROM students
+  WHERE id = p_student_id AND class_id IS NOT NULL AND status = 'active';
+  IF v_class_id IS NULL THEN
+    RAISE EXCEPTION 'Siswa aktif dengan kelas yang valid tidak ditemukan';
   END IF;
 
   SELECT face_threshold, late_after INTO v_threshold, v_late_after FROM school_settings WHERE id = 1;
@@ -295,12 +292,18 @@ BEGIN
   END IF;
   v_status := CASE WHEN localtime > v_late_after THEN 'late' ELSE 'present' END;
 
-  UPDATE attendance_records
-  SET status = v_status,
-      check_in_at = now(),
-      confidence = round(greatest(0, least(100, (1 - p_distance) * 100)), 2),
-      method = 'face'
-  WHERE session_id = p_session_id AND student_id = p_student_id
+  INSERT INTO attendance_records (
+    session_id, student_id, class_id, attendance_date, status, check_in_at, confidence, method
+  ) VALUES (
+    v_session.id, p_student_id, v_class_id, v_session.attendance_date, v_status, now(),
+    round(greatest(0, least(100, (1 - p_distance) * 100)), 2), 'face'
+  )
+  ON CONFLICT (session_id, student_id) DO UPDATE SET
+    class_id = EXCLUDED.class_id,
+    status = EXCLUDED.status,
+    check_in_at = EXCLUDED.check_in_at,
+    confidence = EXCLUDED.confidence,
+    method = 'face'
   RETURNING * INTO v_record;
 
   RETURN to_jsonb(v_record);
@@ -341,6 +344,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON majors, teachers, classes, students, fac
   attendance_sessions, attendance_records TO app_admin;
 GRANT SELECT, UPDATE ON school_settings TO app_admin;
 GRANT EXECUTE ON FUNCTION change_password(text, text), get_dashboard_summary(),
-  start_attendance_session(uuid), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid) TO app_admin;
+  start_attendance_session(), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid) TO app_admin;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

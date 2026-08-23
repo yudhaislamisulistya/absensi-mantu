@@ -5,10 +5,12 @@ Sistem administrasi dan absensi siswa berbasis pengenalan wajah. Frontend dibuat
 ## Fitur
 
 - Manajemen siswa, kelas, guru, jurusan, dan guru wali.
+- Import Excel beserta template XLSX dan validasi untuk seluruh data master.
+- Pagination pada tabel data master dan laporan.
 - Registrasi tiga sampel wajah per siswa melalui kamera browser.
-- Absensi wajah per kelas dengan skor kecocokan dan pencegahan check-in berulang.
-- Koreksi status manual: hadir, terlambat, sakit, izin, atau alfa.
-- Laporan mingguan, bulanan, dan semester per siswa/per kelas.
+- Satu sesi absensi sekolah per hari di ruang guru dengan skor kecocokan wajah dan pencegahan check-in berulang.
+- Koreksi status manual: hadir, terlambat, atau tidak hadir.
+- Laporan mingguan, bulanan, dan semester per hari/per siswa/per kelas.
 - Ekspor laporan ke CSV dan tampilan ramah cetak.
 - Login admin berbasis JWT serta password bcrypt (`pgcrypto`).
 
@@ -50,8 +52,8 @@ Segera ubah password melalui menu profil → **Ubah password** setelah login per
 2. Tambahkan kelas, kemudian pilih guru wali.
 3. Tambahkan siswa dan tempatkan ke kelas.
 4. Buka **Registrasi Wajah**, pilih siswa, lalu ambil tiga sampel.
-5. Buka **Absensi Kelas**, pilih kelas, dan mulai sesi hari ini.
-6. Aktifkan kamera; sistem akan mencocokkan wajah dengan siswa pada kelas tersebut.
+5. Buka **Absensi Siswa** dan mulai satu sesi sekolah untuk hari ini.
+6. Aktifkan kamera di ruang guru; sistem akan mencocokkan wajah dengan seluruh siswa aktif dan tetap menampilkan kelasnya.
 7. Selesaikan sesi dan buka **Laporan** untuk melihat rekap.
 
 ## Catatan pengenalan wajah
@@ -70,6 +72,19 @@ npm run dev
 ```
 
 Vite akan mem-proxy `/api` ke `http://localhost:8108`. Build produksi dibuat dengan `npm run build`.
+
+## Migrasi dari versi absensi per kelas
+
+Cadangkan database, lalu jalankan migrasi satu kali sebelum membangun ulang frontend:
+
+```bash
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/02_schoolwide_attendance.sql
+docker compose up -d --build
+```
+
+Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi sekolah. Kolom kelas pada catatan kehadiran tetap dipertahankan sebagai snapshot untuk laporan historis.
 
 ## Data demonstrasi
 

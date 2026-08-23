@@ -150,44 +150,40 @@ WITH semester AS (
   SELECT day::date AS attendance_date
   FROM semester, generate_series(start_date, CURRENT_DATE - 1, interval '1 day') day
   WHERE extract(isodow FROM day) BETWEEN 1 AND 5
-), seed_classes AS (
-  SELECT c.* FROM classes c
-  WHERE EXISTS (SELECT 1 FROM students s WHERE s.class_id = c.id AND s.nis LIKE 'DMY-%')
 ), admin AS (
   SELECT id FROM app_users WHERE username = 'admin'
 )
 INSERT INTO attendance_sessions (
-  class_id, attendance_date, started_at, ended_at, status, created_by
+  attendance_date, started_at, ended_at, status, created_by
 )
 SELECT
-  c.id,
   d.attendance_date,
   (d.attendance_date + time '06:55') AT TIME ZONE 'Asia/Jakarta',
   (d.attendance_date + time '08:00') AT TIME ZONE 'Asia/Jakarta',
   'closed',
   a.id
-FROM seed_classes c CROSS JOIN school_days d CROSS JOIN admin a
-ON CONFLICT (class_id, attendance_date) DO UPDATE SET
+FROM school_days d CROSS JOIN admin a
+ON CONFLICT (attendance_date) DO UPDATE SET
   started_at = EXCLUDED.started_at,
   ended_at = EXCLUDED.ended_at,
   status = EXCLUDED.status,
   created_by = EXCLUDED.created_by;
 
 WITH seed_rows AS (
-  SELECT sess.id AS session_id, sess.class_id, sess.attendance_date, sess.started_at,
+  SELECT sess.id AS session_id, s.class_id, sess.attendance_date, sess.started_at,
          s.id AS student_id,
          mod(abs(hashtext(s.nis || sess.attendance_date::text)::bigint), 100)::int AS bucket,
          fp.student_id IS NOT NULL AS has_face
   FROM attendance_sessions sess
-  JOIN students s ON s.class_id = sess.class_id AND s.nis LIKE 'DMY-%'
+  CROSS JOIN students s
   LEFT JOIN face_profiles fp ON fp.student_id = s.id
   WHERE sess.attendance_date < CURRENT_DATE
+    AND s.nis LIKE 'DMY-%'
+    AND s.class_id IS NOT NULL
 ), valued AS (
   SELECT *, CASE
-    WHEN bucket < 78 THEN 'present'
-    WHEN bucket < 86 THEN 'late'
-    WHEN bucket < 91 THEN 'sick'
-    WHEN bucket < 96 THEN 'excused'
+    WHEN bucket < 82 THEN 'present'
+    WHEN bucket < 92 THEN 'late'
     ELSE 'absent'
   END AS attendance_status
   FROM seed_rows
@@ -216,9 +212,7 @@ SELECT
     ELSE 'manual'
   END,
   CASE attendance_status
-    WHEN 'sick' THEN 'Data dummy: surat keterangan sakit'
-    WHEN 'excused' THEN 'Data dummy: izin keluarga'
-    WHEN 'absent' THEN 'Data dummy: tanpa keterangan'
+    WHEN 'absent' THEN 'Data dummy: tidak hadir di sekolah'
     ELSE NULL
   END
 FROM valued
@@ -229,42 +223,39 @@ ON CONFLICT (session_id, student_id) DO UPDATE SET
   method = EXCLUDED.method,
   notes = EXCLUDED.notes;
 
-WITH selected_class AS (
-  SELECT id FROM classes WHERE name = 'X RPL 1'
-), admin AS (
+WITH admin AS (
   SELECT id FROM app_users WHERE username = 'admin'
 )
 INSERT INTO attendance_sessions (
-  class_id, attendance_date, started_at, status, created_by
+  attendance_date, started_at, status, created_by
 )
 SELECT
-  sc.id,
   CURRENT_DATE,
   (CURRENT_DATE + time '07:00') AT TIME ZONE 'Asia/Jakarta',
   'open',
   a.id
-FROM selected_class sc CROSS JOIN admin a
-ON CONFLICT (class_id, attendance_date) DO UPDATE SET
+FROM admin a
+ON CONFLICT (attendance_date) DO UPDATE SET
   started_at = EXCLUDED.started_at,
   ended_at = NULL,
   status = 'open',
   created_by = EXCLUDED.created_by;
 
 WITH today_students AS (
-  SELECT sess.id AS session_id, sess.class_id, sess.attendance_date, sess.started_at,
+  SELECT sess.id AS session_id, s.class_id, sess.attendance_date, sess.started_at,
          s.id AS student_id,
          row_number() OVER (ORDER BY s.name)::int AS number,
          fp.student_id IS NOT NULL AS has_face
   FROM attendance_sessions sess
-  JOIN classes c ON c.id = sess.class_id AND c.name = 'X RPL 1'
-  JOIN students s ON s.class_id = c.id AND s.nis LIKE 'DMY-%'
+  CROSS JOIN students s
   LEFT JOIN face_profiles fp ON fp.student_id = s.id
   WHERE sess.attendance_date = CURRENT_DATE
+    AND s.nis LIKE 'DMY-%'
+    AND s.class_id IS NOT NULL
 ), valued AS (
   SELECT *, CASE
-    WHEN number <= 5 THEN 'present'
-    WHEN number = 6 THEN 'late'
-    WHEN number = 7 THEN 'sick'
+    WHEN number <= 48 THEN 'present'
+    WHEN number <= 56 THEN 'late'
     ELSE 'absent'
   END AS attendance_status
   FROM today_students
@@ -281,14 +272,13 @@ SELECT
   attendance_status,
   CASE attendance_status
     WHEN 'present' THEN started_at + ((number + 3) || ' minutes')::interval
-    WHEN 'late' THEN started_at + interval '48 minutes'
+    WHEN 'late' THEN started_at + ((34 + number % 18) || ' minutes')::interval
     ELSE NULL
   END,
-  CASE WHEN attendance_status IN ('present', 'late') AND has_face THEN (94 + number * 0.35)::numeric(5,2) ELSE NULL END,
+  CASE WHEN attendance_status IN ('present', 'late') AND has_face THEN round((91 + mod(number, 20) * 0.35)::numeric, 2) ELSE NULL END,
   CASE WHEN attendance_status IN ('present', 'late') AND has_face THEN 'face' ELSE 'manual' END,
   CASE attendance_status
-    WHEN 'sick' THEN 'Data dummy: surat keterangan sakit'
-    WHEN 'absent' THEN 'Data dummy: belum hadir'
+    WHEN 'absent' THEN 'Data dummy: tidak hadir di sekolah'
     ELSE NULL
   END
 FROM valued
@@ -342,6 +332,6 @@ UNION ALL SELECT 'teachers', count(*) FROM teachers WHERE nip LIKE 'DMY-%'
 UNION ALL SELECT 'classes', count(*) FROM classes WHERE name IN ('X RPL 1','XI RPL 1','X TKJ 1','XI TKJ 1','X AKL 1','XI AKL 1','X MPLB 1','XI MPLB 1')
 UNION ALL SELECT 'students', count(*) FROM students WHERE nis LIKE 'DMY-%'
 UNION ALL SELECT 'face_profiles', count(*) FROM face_profiles fp JOIN students s ON s.id = fp.student_id WHERE s.nis LIKE 'DMY-%'
-UNION ALL SELECT 'attendance_sessions', count(*) FROM attendance_sessions sess JOIN classes c ON c.id = sess.class_id WHERE c.name IN ('X RPL 1','XI RPL 1','X TKJ 1','XI TKJ 1','X AKL 1','XI AKL 1','X MPLB 1','XI MPLB 1')
+UNION ALL SELECT 'attendance_sessions', count(*) FROM attendance_sessions
 UNION ALL SELECT 'attendance_records', count(*) FROM attendance_records ar JOIN students s ON s.id = ar.student_id WHERE s.nis LIKE 'DMY-%'
 ORDER BY feature;

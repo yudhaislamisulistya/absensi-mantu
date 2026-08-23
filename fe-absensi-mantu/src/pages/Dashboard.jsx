@@ -18,7 +18,7 @@ export default function Dashboard({ setPage }) {
     start.setDate(start.getDate() - 6)
     Promise.all([
       api.rpc('get_dashboard_summary'),
-      api.get('attendance_sessions?select=id,attendance_date,started_at,status,classes(name,grade),attendance_records(status)&order=started_at.desc&limit=5'),
+      api.get('attendance_sessions?select=id,attendance_date,started_at,status,attendance_records(status)&order=started_at.desc&limit=5'),
       api.get(`attendance_records?select=attendance_date,status&attendance_date=gte.${localDate(start)}&order=attendance_date.asc`),
     ]).then(([stats, recent, records]) => {
       setSummary(stats)
@@ -49,7 +49,7 @@ export default function Dashboard({ setPage }) {
     { label: 'Siswa aktif', value: summary?.students || 0, icon: GraduationCap, tone: 'teal', note: `${summary?.face_registered || 0} wajah terdaftar` },
     { label: 'Guru aktif', value: summary?.teachers || 0, icon: Users, tone: 'blue', note: 'Tenaga pengajar' },
     { label: 'Total kelas', value: summary?.classes || 0, icon: School, tone: 'purple', note: `${summary?.majors || 0} jurusan` },
-    { label: 'Hadir hari ini', value: summary?.present_today || 0, icon: CheckCircle2, tone: 'amber', note: `${summary?.sessions_today || 0} sesi absensi` },
+    { label: 'Hadir hari ini', value: summary?.present_today || 0, icon: CheckCircle2, tone: 'amber', note: summary?.sessions_today ? 'Sesi sekolah sudah dibuat' : 'Sesi sekolah belum dibuat' },
   ]
 
   return (
@@ -82,11 +82,11 @@ export default function Dashboard({ setPage }) {
 
       <article className="panel recent-panel">
         <div className="panel-heading"><div><p className="eyebrow">AKTIVITAS TERBARU</p><h2>Sesi absensi</h2></div><button className="text-button" onClick={() => setPage('attendance')}>Lihat semua</button></div>
-        {!sessions.length ? <EmptyState title="Belum ada sesi hari ini" text="Mulai absensi pada salah satu kelas untuk melihat aktivitas." /> : (
+        {!sessions.length ? <EmptyState title="Belum ada sesi absensi" text="Mulai absensi sekolah dari pos ruang guru untuk melihat aktivitas." /> : (
           <div className="session-list">
             {sessions.map((item) => {
               const present = item.attendance_records?.filter((row) => ['present', 'late'].includes(row.status)).length || 0
-              return <div className="session-row" key={item.id}><span className="session-icon"><Clock3 /></span><div><strong>Kelas {item.classes?.name}</strong><small>{new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(new Date(`${item.attendance_date}T00:00:00`))} · {formatTime(item.started_at)}</small></div><div className="session-count"><strong>{present}/{item.attendance_records?.length || 0}</strong><small>Hadir</small></div><StatusBadge value={item.status} /></div>
+              return <div className="session-row" key={item.id}><span className="session-icon"><Clock3 /></span><div><strong>Absensi sekolah</strong><small>{new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(new Date(`${item.attendance_date}T00:00:00`))} · {formatTime(item.started_at)}</small></div><div className="session-count"><strong>{present}/{item.attendance_records?.length || 0}</strong><small>Hadir</small></div><StatusBadge value={item.status} /></div>
             })}
           </div>
         )}

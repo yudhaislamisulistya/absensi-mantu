@@ -72,6 +72,13 @@ export const api = {
       body: JSON.stringify(data),
     }).then((rows) => rows?.[0])
   },
+  bulkUpsert(table, rows, conflict) {
+    return request(`/${table}?on_conflict=${encodeURIComponent(conflict)}`, {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(rows),
+    })
+  },
   rpc(name, data = {}) {
     return request(`/rpc/${name}`, { method: 'POST', body: JSON.stringify(data) })
   },
