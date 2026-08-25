@@ -108,8 +108,8 @@ CREATE TABLE attendance_sessions (
 CREATE TABLE attendance_records (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id uuid NOT NULL REFERENCES attendance_sessions(id) ON DELETE CASCADE,
-  student_id uuid NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
-  class_id uuid NOT NULL REFERENCES classes(id) ON DELETE RESTRICT,
+  student_id uuid NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  class_id uuid NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
   attendance_date date NOT NULL DEFAULT CURRENT_DATE,
   status varchar(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present', 'late', 'absent')),
   check_in_at timestamptz,

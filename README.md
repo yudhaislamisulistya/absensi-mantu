@@ -91,10 +91,13 @@ docker exec -i absensi_mantu_postgres_db \
 docker exec -i absensi_mantu_postgres_db \
   psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
   < database/04_entry_exit_attendance.sql
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/05_allow_student_class_deletion.sql
 docker compose up -d --build
 ```
 
-Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi sekolah, menambahkan reset pengujian, serta menambahkan jadwal dan absensi pulang. Kolom kelas pada catatan kehadiran tetap dipertahankan sebagai snapshot untuk laporan historis.
+Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi sekolah, menambahkan reset pengujian, menambahkan jadwal dan absensi pulang, serta mengizinkan penghapusan siswa/kelas beserta riwayat absensi terkait.
 
 ## Data demonstrasi
 
