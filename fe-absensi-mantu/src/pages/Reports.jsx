@@ -77,11 +77,11 @@ export default function Reports({ setToast }) {
     try {
       let query
       if (subject === 'student') {
-        query = `attendance_records?select=attendance_date,status,check_in_at,check_out_at,method,confidence,student_id,class_id,students(id,nis,name),classes(id,name)&attendance_date=gte.${startDate}&attendance_date=lte.${endDate}`
+        query = `attendance_records?select=attendance_date,status,check_in_at,check_out_at,method,confidence,face_distance,student_id,class_id,students(id,nis,name),classes(id,name)&attendance_date=gte.${startDate}&attendance_date=lte.${endDate}`
         if (classId) query += `&class_id=eq.${classId}`
         if (studentId) query += `&student_id=eq.${studentId}`
       } else {
-        query = `teacher_attendance_records?select=attendance_date,status,check_in_at,check_out_at,method,teacher_id,teachers(id,nip,name)&attendance_date=gte.${startDate}&attendance_date=lte.${endDate}`
+        query = `teacher_attendance_records?select=attendance_date,status,check_in_at,check_out_at,method,confidence,face_distance,teacher_id,teachers(id,nip,name)&attendance_date=gte.${startDate}&attendance_date=lte.${endDate}`
         if (teacherId) query += `&teacher_id=eq.${teacherId}`
       }
       query += '&order=attendance_date.asc'
@@ -148,13 +148,13 @@ export default function Reports({ setToast }) {
       ...grouped.map((row) => [row.name, row.sub, row.total, row.present, row.late, row.absent, row.checkedOut, `${row.rate}%`]),
     ]
     const detailHeader = subject === 'student'
-      ? ['Tanggal', 'NIS', 'Nama Siswa', 'Kelas', 'Status', 'Masuk', 'Pulang', 'Metode', 'Kecocokan']
-      : ['Tanggal', 'NIP', 'Nama Guru', 'Status', 'Masuk', 'Pulang', 'Metode']
+      ? ['Tanggal', 'NIS', 'Nama Siswa', 'Kelas', 'Status', 'Masuk', 'Pulang', 'Metode', 'Skor Verifikasi', 'Jarak Wajah']
+      : ['Tanggal', 'NIP', 'Nama Guru', 'Status', 'Masuk', 'Pulang', 'Metode', 'Skor Verifikasi', 'Jarak Wajah']
     const detailRows = [
       detailHeader.map(headerCell),
       ...records.map((row) => subject === 'student'
-        ? [row.attendance_date, row.students?.nis || '-', row.students?.name || '-', row.classes?.name || '-', statusLabels[row.status], formatTime(row.check_in_at), formatTime(row.check_out_at), row.method === 'face' ? 'Wajah' : 'Manual', row.confidence === null ? '-' : `${row.confidence}%`]
-        : [row.attendance_date, row.teachers?.nip || '-', row.teachers?.name || '-', statusLabels[row.status], formatTime(row.check_in_at), formatTime(row.check_out_at), 'Manual']),
+        ? [row.attendance_date, row.students?.nis || '-', row.students?.name || '-', row.classes?.name || '-', statusLabels[row.status], formatTime(row.check_in_at), formatTime(row.check_out_at), row.method === 'face' ? 'Wajah' : 'Manual', row.confidence === null ? '-' : `${row.confidence}%`, row.face_distance ?? '-']
+        : [row.attendance_date, row.teachers?.nip || '-', row.teachers?.name || '-', statusLabels[row.status], formatTime(row.check_in_at), formatTime(row.check_out_at), row.method === 'face' ? 'Wajah' : 'Manual', row.confidence === null ? '-' : `${row.confidence}%`, row.face_distance ?? '-']),
     ]
     try {
       await writeExcelFile([

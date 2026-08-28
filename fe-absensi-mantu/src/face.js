@@ -54,6 +54,19 @@ export function bestMatch(descriptor, profiles) {
   return matches[0] ? { ...matches[0], secondDistance: matches[1]?.distance ?? Infinity, gap: (matches[1]?.distance ?? Infinity) - matches[0].distance } : null
 }
 
+export function median(values) {
+  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b)
+  if (!sorted.length) return Infinity
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+// Skor verifikasi, bukan probabilitas: ambang penolakan dipetakan ke 70 dan kecocokan identik ke 100.
+export function faceMatchScore(distance, threshold) {
+  if (!Number.isFinite(distance) || !Number.isFinite(threshold) || threshold <= 0) return 0
+  return Math.round(Math.max(0, Math.min(100, 100 - (30 * distance) / threshold)) * 100) / 100
+}
+
 export function videoThumbnail(video) {
   const canvas = document.createElement('canvas')
   const ratio = Math.min(1, 320 / video.videoWidth)

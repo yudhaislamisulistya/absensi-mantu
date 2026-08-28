@@ -84,6 +84,15 @@ CREATE TABLE face_profiles (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE teacher_face_profiles (
+  teacher_id uuid PRIMARY KEY REFERENCES teachers(id) ON DELETE CASCADE,
+  descriptors jsonb NOT NULL CHECK (jsonb_typeof(descriptors) = 'array'),
+  photo_data text,
+  sample_count smallint NOT NULL DEFAULT 1 CHECK (sample_count BETWEEN 1 AND 5),
+  registered_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE school_settings (
   id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   school_name varchar(150) NOT NULL DEFAULT 'SMA Mantu',
@@ -114,9 +123,11 @@ CREATE TABLE attendance_records (
   status varchar(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present', 'late', 'absent')),
   check_in_at timestamptz,
   confidence numeric(5,2) CHECK (confidence BETWEEN 0 AND 100),
+  face_distance numeric(6,4) CHECK (face_distance BETWEEN 0 AND 2),
   method varchar(20) NOT NULL DEFAULT 'manual' CHECK (method IN ('face', 'manual')),
   check_out_at timestamptz,
   check_out_confidence numeric(5,2) CHECK (check_out_confidence BETWEEN 0 AND 100),
+  check_out_face_distance numeric(6,4) CHECK (check_out_face_distance BETWEEN 0 AND 2),
   check_out_method varchar(20) CHECK (check_out_method IN ('face', 'manual')),
   notes text,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -130,8 +141,13 @@ CREATE TABLE teacher_attendance_records (
   attendance_date date NOT NULL DEFAULT CURRENT_DATE,
   status varchar(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present', 'late', 'absent')),
   check_in_at timestamptz,
+  confidence numeric(5,2) CHECK (confidence BETWEEN 0 AND 100),
+  face_distance numeric(6,4) CHECK (face_distance BETWEEN 0 AND 2),
   check_out_at timestamptz,
-  method varchar(20) NOT NULL DEFAULT 'manual' CHECK (method = 'manual'),
+  check_out_confidence numeric(5,2) CHECK (check_out_confidence BETWEEN 0 AND 100),
+  check_out_face_distance numeric(6,4) CHECK (check_out_face_distance BETWEEN 0 AND 2),
+  method varchar(20) NOT NULL DEFAULT 'manual' CHECK (method IN ('face', 'manual')),
+  check_out_method varchar(20) CHECK (check_out_method IN ('face', 'manual')),
   notes text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -159,6 +175,7 @@ CREATE TRIGGER teachers_touch BEFORE UPDATE ON teachers FOR EACH ROW EXECUTE FUN
 CREATE TRIGGER classes_touch BEFORE UPDATE ON classes FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER students_touch BEFORE UPDATE ON students FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER face_profiles_touch BEFORE UPDATE ON face_profiles FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+CREATE TRIGGER teacher_face_profiles_touch BEFORE UPDATE ON teacher_face_profiles FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER school_settings_touch BEFORE UPDATE ON school_settings FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER attendance_records_touch BEFORE UPDATE ON attendance_records FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER teacher_attendance_records_touch BEFORE UPDATE ON teacher_attendance_records FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
@@ -243,6 +260,13 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION face_match_score(p_distance numeric, p_threshold numeric)
+RETURNS numeric
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+AS $$
+  SELECT round(greatest(0, least(100, 100 - (30 * p_distance / greatest(p_threshold, 0.001)))), 2);
+$$;
+
 CREATE OR REPLACE FUNCTION get_dashboard_summary()
 RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER
@@ -256,7 +280,8 @@ AS $$
     'present_today', (SELECT count(*) FROM attendance_records WHERE attendance_date = CURRENT_DATE AND status IN ('present', 'late')),
     'absent_today', (SELECT count(*) FROM attendance_records WHERE attendance_date = CURRENT_DATE AND status = 'absent'),
     'sessions_today', (SELECT count(*) FROM attendance_sessions WHERE attendance_date = CURRENT_DATE),
-    'face_registered', (SELECT count(*) FROM face_profiles)
+    'face_registered', (SELECT count(*) FROM face_profiles),
+    'teacher_face_registered', (SELECT count(*) FROM teacher_face_profiles)
   );
 $$;
 
@@ -320,8 +345,8 @@ BEGIN
   SELECT face_threshold, entry_time, tolerance_minutes
   INTO v_threshold, v_entry_time, v_tolerance_minutes
   FROM school_settings WHERE id = 1;
-  IF p_distance > v_threshold THEN
-    RAISE EXCEPTION 'Tingkat kecocokan wajah belum memenuhi batas';
+  IF p_distance < 0 OR p_distance > v_threshold THEN
+    RAISE EXCEPTION 'Jarak wajah belum memenuhi ambang verifikasi';
   END IF;
   v_status := CASE
     WHEN localtime > v_entry_time + make_interval(mins => v_tolerance_minutes) THEN 'late'
@@ -329,16 +354,17 @@ BEGIN
   END;
 
   INSERT INTO attendance_records (
-    session_id, student_id, class_id, attendance_date, status, check_in_at, confidence, method
+    session_id, student_id, class_id, attendance_date, status, check_in_at, confidence, face_distance, method
   ) VALUES (
     v_session.id, p_student_id, v_class_id, v_session.attendance_date, v_status, now(),
-    round(greatest(0, least(100, (1 - p_distance) * 100)), 2), 'face'
+    face_match_score(p_distance, v_threshold), round(p_distance, 4), 'face'
   )
   ON CONFLICT (session_id, student_id) DO UPDATE SET
     class_id = EXCLUDED.class_id,
     status = EXCLUDED.status,
     check_in_at = EXCLUDED.check_in_at,
     confidence = EXCLUDED.confidence,
+    face_distance = EXCLUDED.face_distance,
     method = 'face'
   RETURNING * INTO v_record;
 
@@ -373,8 +399,8 @@ BEGIN
   SELECT face_threshold, exit_time, tolerance_minutes
   INTO v_threshold, v_exit_time, v_tolerance_minutes
   FROM school_settings WHERE id = 1;
-  IF p_distance > v_threshold THEN
-    RAISE EXCEPTION 'Tingkat kecocokan wajah belum memenuhi batas';
+  IF p_distance < 0 OR p_distance > v_threshold THEN
+    RAISE EXCEPTION 'Jarak wajah belum memenuhi ambang verifikasi';
   END IF;
 
   SELECT * INTO v_record
@@ -395,7 +421,8 @@ BEGIN
 
   UPDATE attendance_records
   SET check_out_at = now(),
-      check_out_confidence = round(greatest(0, least(100, (1 - p_distance) * 100)), 2),
+      check_out_confidence = face_match_score(p_distance, v_threshold),
+      check_out_face_distance = round(p_distance, 4),
       check_out_method = 'face'
   WHERE id = v_record.id
   RETURNING * INTO v_record;
@@ -444,8 +471,9 @@ BEGIN
   RETURNING * INTO v_session;
 
   UPDATE attendance_records
-  SET status = 'absent', check_in_at = NULL, confidence = NULL, method = 'manual',
-      check_out_at = NULL, check_out_confidence = NULL, check_out_method = NULL, notes = NULL
+  SET status = 'absent', check_in_at = NULL, confidence = NULL, face_distance = NULL, method = 'manual',
+      check_out_at = NULL, check_out_confidence = NULL, check_out_face_distance = NULL,
+      check_out_method = NULL, notes = NULL
   WHERE session_id = p_session_id;
 
   INSERT INTO attendance_records (session_id, student_id, class_id, attendance_date, status, method)
@@ -500,7 +528,7 @@ BEGIN
     IF v_record.check_in_at IS NULL THEN
       UPDATE teacher_attendance_records
       SET status = CASE WHEN localtime > v_entry_time + make_interval(mins => v_tolerance) THEN 'late' ELSE 'present' END,
-          check_in_at = now(), method = 'manual'
+          check_in_at = now(), confidence = NULL, face_distance = NULL, method = 'manual'
       WHERE id = v_record.id RETURNING * INTO v_record;
     END IF;
   ELSE
@@ -510,9 +538,60 @@ BEGIN
         to_char(v_exit_time - make_interval(mins => v_tolerance), 'HH24:MI');
     END IF;
     IF v_record.check_out_at IS NULL THEN
-      UPDATE teacher_attendance_records SET check_out_at = now()
+      UPDATE teacher_attendance_records
+      SET check_out_at = now(), check_out_confidence = NULL,
+          check_out_face_distance = NULL, check_out_method = 'manual'
       WHERE id = v_record.id RETURNING * INTO v_record;
     END IF;
+  END IF;
+  RETURN to_jsonb(v_record);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION check_teacher_face(p_teacher_id uuid, p_event text, p_distance numeric)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_record teacher_attendance_records;
+  v_threshold numeric;
+  v_entry_time time;
+  v_exit_time time;
+  v_tolerance smallint;
+  v_earliest_exit time;
+BEGIN
+  IF p_event NOT IN ('entry', 'exit') THEN RAISE EXCEPTION 'Jenis absensi guru tidak valid'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM teachers teacher JOIN teacher_face_profiles profile ON profile.teacher_id = teacher.id
+    WHERE teacher.id = p_teacher_id AND teacher.status = 'active'
+  ) THEN RAISE EXCEPTION 'Profil wajah guru aktif tidak ditemukan'; END IF;
+  SELECT face_threshold, entry_time, exit_time, tolerance_minutes
+  INTO v_threshold, v_entry_time, v_exit_time, v_tolerance FROM school_settings WHERE id = 1;
+  IF p_distance < 0 OR p_distance > v_threshold THEN RAISE EXCEPTION 'Jarak wajah belum memenuhi ambang verifikasi'; END IF;
+  INSERT INTO teacher_attendance_records (teacher_id, attendance_date)
+  VALUES (p_teacher_id, CURRENT_DATE) ON CONFLICT (teacher_id, attendance_date) DO NOTHING;
+  SELECT * INTO v_record FROM teacher_attendance_records
+  WHERE teacher_id = p_teacher_id AND attendance_date = CURRENT_DATE FOR UPDATE;
+  IF p_event = 'entry' THEN
+    IF v_record.check_in_at IS NULL THEN
+      UPDATE teacher_attendance_records
+      SET status = CASE WHEN localtime > v_entry_time + make_interval(mins => v_tolerance) THEN 'late' ELSE 'present' END,
+          check_in_at = now(), confidence = face_match_score(p_distance, v_threshold),
+          face_distance = round(p_distance, 4), method = 'face'
+      WHERE id = v_record.id RETURNING * INTO v_record;
+    END IF;
+  ELSE
+    IF v_record.check_in_at IS NULL THEN RAISE EXCEPTION 'Guru belum melakukan absensi masuk'; END IF;
+    IF v_record.check_out_at IS NOT NULL THEN RETURN to_jsonb(v_record); END IF;
+    v_earliest_exit := v_exit_time - make_interval(mins => v_tolerance);
+    IF localtime < v_earliest_exit THEN
+      RAISE EXCEPTION 'Absensi pulang baru dapat dilakukan mulai pukul %', to_char(v_earliest_exit, 'HH24:MI');
+    END IF;
+    UPDATE teacher_attendance_records
+    SET check_out_at = now(), check_out_confidence = face_match_score(p_distance, v_threshold),
+        check_out_face_distance = round(p_distance, 4), check_out_method = 'face'
+    WHERE id = v_record.id RETURNING * INTO v_record;
   END IF;
   RETURN to_jsonb(v_record);
 END;
@@ -541,12 +620,13 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO web_anon, app_admin;
 GRANT EXECUTE ON FUNCTION login(text, text) TO web_anon;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON majors, teachers, classes, students, face_profiles,
+GRANT SELECT, INSERT, UPDATE, DELETE ON majors, teachers, classes, students, face_profiles, teacher_face_profiles,
   attendance_sessions, attendance_records, teacher_attendance_records TO app_admin;
 GRANT SELECT, UPDATE ON school_settings TO app_admin;
 GRANT EXECUTE ON FUNCTION change_password(text, text), get_dashboard_summary(),
   start_attendance_session(), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid),
   check_out_face(uuid, uuid, numeric), reset_attendance_session(uuid), prepare_teacher_attendance(),
-  record_teacher_attendance(uuid, text), reset_teacher_attendance() TO app_admin;
+  record_teacher_attendance(uuid, text), check_teacher_face(uuid, text, numeric),
+  reset_teacher_attendance(), face_match_score(numeric, numeric) TO app_admin;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;

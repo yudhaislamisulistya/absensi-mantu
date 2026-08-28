@@ -47,7 +47,7 @@ export default function Dashboard({ setPage }) {
 
   const stats = [
     { label: 'Siswa aktif', value: summary?.students || 0, icon: GraduationCap, tone: 'teal', note: `${summary?.face_registered || 0} wajah terdaftar` },
-    { label: 'Guru aktif', value: summary?.teachers || 0, icon: Users, tone: 'blue', note: 'Tenaga pengajar' },
+    { label: 'Guru aktif', value: summary?.teachers || 0, icon: Users, tone: 'blue', note: `${summary?.teacher_face_registered || 0} wajah terdaftar` },
     { label: 'Total kelas', value: summary?.classes || 0, icon: School, tone: 'purple', note: `${summary?.majors || 0} jurusan` },
     { label: 'Hadir hari ini', value: summary?.present_today || 0, icon: CheckCircle2, tone: 'amber', note: summary?.sessions_today ? 'Sesi sekolah sudah dibuat' : 'Sesi sekolah belum dibuat' },
   ]

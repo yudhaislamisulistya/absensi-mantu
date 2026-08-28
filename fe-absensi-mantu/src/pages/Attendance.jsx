@@ -1,7 +1,7 @@
-import { AlertCircle, CalendarDays, CheckCircle2, LogIn, LogOut, Play, RotateCcw, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, CalendarDays, CheckCircle2, LogIn, LogOut, Play, RotateCcw, ScanFace, Search, Square, Users } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import { bestMatch, detectFace, faceQuality, loadFaceModels, openCamera, stopCamera } from '../face'
+import FaceScanner from '../components/FaceScanner'
 import { ConfirmDialog, EmptyState, Loading, PageHeader, StatusBadge, formatTime, initials } from '../components/ui'
 
 function localDate() {
@@ -42,15 +42,7 @@ export default function Attendance({ setToast }) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
-  const [scanning, setScanning] = useState(false)
-  const [scanMode, setScanMode] = useState('entry')
   const [scanState, setScanState] = useState({ type: 'idle', message: 'Kamera belum diaktifkan' })
-  const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const detectingRef = useRef(false)
-  const lastSeenRef = useRef({})
-  const candidateRef = useRef({ key: '', count: 0 })
-  const notificationRef = useRef({ key: '', at: 0 })
 
   const loadRecords = useCallback(async (sessionId) => {
     if (!sessionId) return []
@@ -81,22 +73,7 @@ export default function Attendance({ setToast }) {
 
   useEffect(() => {
     loadAttendance()
-    return () => stopCamera(streamRef.current)
   }, [loadAttendance])
-
-  function stopScanner() {
-    stopCamera(streamRef.current)
-    streamRef.current = null
-    setScanning(false)
-    candidateRef.current = { key: '', count: 0 }
-    setScanState({ type: 'idle', message: 'Kamera belum diaktifkan' })
-  }
-
-  function changeScanMode(value) {
-    stopScanner()
-    lastSeenRef.current = {}
-    setScanMode(value)
-  }
 
   async function startSession() {
     setBusy(true)
@@ -112,97 +89,20 @@ export default function Attendance({ setToast }) {
     }
   }
 
-  async function startScanner() {
-    if (!profiles.length) {
-      setToast({ type: 'error', message: 'Belum ada profil wajah siswa aktif yang dapat dipindai.' })
-      return
-    }
-    setBusy(true)
-    try {
-      await loadFaceModels()
-      streamRef.current = await openCamera(videoRef.current)
-      setScanning(true)
-      candidateRef.current = { key: '', count: 0 }
-      setScanState({ type: 'scanning', message: 'Arahkan satu wajah ke area kamera dan tahan posisi' })
-    } catch (error) {
-      setToast({ type: 'error', message: error.name === 'NotAllowedError' ? 'Izin kamera ditolak oleh browser.' : error.message })
-    } finally {
-      setBusy(false)
-    }
-  }
 
-  useEffect(() => {
-    if (!scanning || !sessionData || sessionData.status !== 'open') return undefined
-    function showResult(type, message, sound = false) {
-      setScanState({ type, message })
-      const key = `${type}:${message}`
-      const now = Date.now()
-      if (notificationRef.current.key !== key || now - notificationRef.current.at > 5000) {
-        notificationRef.current = { key, at: now }
-        setToast({ type: type === 'success' ? 'success' : 'error', message, sound })
-      }
+  async function recognizeStudent(match, mode, distance, score) {
+    const existing = records.find((row) => row.student_id === match.student_id)
+    const alreadyRecorded = mode === 'entry' ? existing?.check_in_at : existing?.check_out_at
+    if (alreadyRecorded) {
+      return { message: `${match.students.name} sudah absen ${mode === 'entry' ? 'masuk' : 'pulang'}.`, confidence: score, subline: match.students.classes?.name }
     }
-    const interval = window.setInterval(async () => {
-      if (detectingRef.current || !videoRef.current?.videoWidth) return
-      detectingRef.current = true
-      try {
-        const detection = await detectFace(videoRef.current)
-        if (!detection) {
-          candidateRef.current = { key: '', count: 0 }
-          setScanState({ type: 'scanning', message: 'Menunggu wajah terlihat jelas di dalam area kamera.' })
-          return
-        }
-        const qualityMessage = faceQuality(detection, videoRef.current)
-        if (qualityMessage) {
-          candidateRef.current = { key: '', count: 0 }
-          showResult('unknown', qualityMessage, true)
-          return
-        }
-        const match = bestMatch(detection.descriptor, profiles)
-        const threshold = Number(settings.face_threshold || 0.5)
-        if (!match || match.distance > threshold) {
-          candidateRef.current = { key: '', count: 0 }
-          showResult('unknown', 'Wajah tidak dikenali. Hadapkan wajah ke kamera dan coba lagi.', true)
-          return
-        }
-        if (match.gap < 0.035) {
-          candidateRef.current = { key: '', count: 0 }
-          showResult('unknown', 'Hasil wajah belum cukup pasti. Pastikan hanya satu orang di depan kamera.', true)
-          return
-        }
-        const candidateKey = `${scanMode}:${match.student_id}`
-        const now = Date.now()
-        if (now - (lastSeenRef.current[candidateKey] || 0) < 8000) return
-        candidateRef.current = candidateRef.current.key === candidateKey
-          ? { key: candidateKey, count: candidateRef.current.count + 1 }
-          : { key: candidateKey, count: 1 }
-        if (candidateRef.current.count < 3) {
-          setScanState({ type: 'scanning', message: `Memastikan wajah ${match.students.name} (${candidateRef.current.count}/3)…` })
-          return
-        }
-        const seenKey = candidateKey
-        if (now - (lastSeenRef.current[seenKey] || 0) < 8000) return
-        const rpcName = scanMode === 'entry' ? 'check_in_face' : 'check_out_face'
-        const saved = await api.rpc(rpcName, { p_session_id: sessionData.id, p_student_id: match.student_id, p_distance: match.distance })
-        lastSeenRef.current[seenKey] = now
-        candidateRef.current = { key: '', count: 0 }
-        setRecords((current) => current.some((row) => row.id === saved.id)
-          ? current.map((row) => row.id === saved.id ? { ...row, ...saved } : row)
-          : [...current, { ...saved, students: match.students, classes: match.students.classes }])
-        const message = `${match.students.name} berhasil absen ${scanMode === 'entry' ? 'masuk' : 'pulang'}.`
-        const confidence = scanMode === 'entry' ? saved.confidence : saved.check_out_confidence
-        setScanState({ type: 'success', message, student: match.students, confidence })
-        notificationRef.current = { key: `success:${message}`, at: now }
-        setToast({ message, sound: true })
-      } catch (error) {
-        candidateRef.current = { key: '', count: 0 }
-        showResult('error', error.message, true)
-      } finally {
-        detectingRef.current = false
-      }
-    }, 800)
-    return () => window.clearInterval(interval)
-  }, [profiles, scanMode, scanning, sessionData, settings.face_threshold, setToast])
+    const rpcName = mode === 'entry' ? 'check_in_face' : 'check_out_face'
+    const saved = await api.rpc(rpcName, { p_session_id: sessionData.id, p_student_id: match.student_id, p_distance: distance })
+    setRecords((current) => current.some((row) => row.id === saved.id)
+      ? current.map((row) => row.id === saved.id ? { ...row, ...saved } : row)
+      : [...current, { ...saved, students: match.students, classes: match.students.classes }])
+    return { message: `${match.students.name} berhasil absen ${mode === 'entry' ? 'masuk' : 'pulang'}.`, confidence: mode === 'entry' ? saved.confidence : saved.check_out_confidence, subline: match.students.classes?.name }
+  }
 
   async function updateStatus(record, status) {
     try {
@@ -211,9 +111,11 @@ export default function Attendance({ setToast }) {
         status,
         method: 'manual',
         confidence: null,
+        face_distance: null,
         check_in_at: attended ? new Date().toISOString() : null,
         check_out_at: attended ? record.check_out_at : null,
         check_out_confidence: attended ? record.check_out_confidence : null,
+        check_out_face_distance: attended ? record.check_out_face_distance : null,
         check_out_method: attended ? record.check_out_method : null,
       })
       setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
@@ -233,6 +135,7 @@ export default function Attendance({ setToast }) {
       const updated = await api.update('attendance_records', record.id, {
         check_out_at: new Date().toISOString(),
         check_out_confidence: null,
+        check_out_face_distance: null,
         check_out_method: 'manual',
       })
       setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
@@ -247,7 +150,6 @@ export default function Attendance({ setToast }) {
     try {
       const value = await api.rpc('close_attendance_session', { p_session_id: sessionData.id })
       setSessionData(value)
-      stopScanner()
       setToast({ message: 'Sesi absensi sekolah telah diselesaikan.' })
     } catch (error) {
       setToast({ type: 'error', message: error.message })
@@ -259,11 +161,9 @@ export default function Attendance({ setToast }) {
   async function resetSession() {
     setBusy(true)
     try {
-      stopScanner()
       const value = await api.rpc('reset_attendance_session', { p_session_id: sessionData.id })
       setSessionData(value)
       setRecords(await loadRecords(value.id))
-      lastSeenRef.current = {}
       setResetOpen(false)
       setToast({ message: 'Absensi hari ini berhasil direset dan sesi dibuka kembali.' })
     } catch (error) {
@@ -310,17 +210,7 @@ export default function Attendance({ setToast }) {
             <div><span className="dot checked-out" /><p>Sudah pulang<strong>{counts.checkedOut}</strong></p></div>
           </section>
           <section className="scanner-grid">
-            <article className="panel scanner-panel">
-              <div className="panel-heading"><div><p className="eyebrow">POS RUANG GURU</p><h2>Pemindai wajah</h2></div>{scanning && <span className="live-badge"><i /> LIVE</span>}</div>
-              <div className="scanner-mode" role="group" aria-label="Jenis absensi"><button type="button" className={scanMode === 'entry' ? 'active' : ''} onClick={() => changeScanMode('entry')}><LogIn /> <span>Absensi masuk<small>Tepat waktu s.d. {shiftedTime(settings.entry_time, Number(settings.tolerance_minutes || 0))}</small></span></button><button type="button" className={scanMode === 'exit' ? 'active' : ''} onClick={() => changeScanMode('exit')}><LogOut /> <span>Absensi pulang<small>Mulai {shiftedTime(settings.exit_time, -Number(settings.tolerance_minutes || 0))}</small></span></button></div>
-              <div className="camera-frame attendance-camera">
-                <video ref={videoRef} muted playsInline />
-                {scanning && <div className="scan-line" />}
-                {!scanning && <div className="camera-placeholder"><VideoOff /><strong>Kamera nonaktif</strong><span>Aktifkan kamera untuk absensi {scanMode === 'entry' ? 'masuk' : 'pulang'}.</span></div>}
-                {scanning && <div className={`recognition-toast recognition-${scanState.type}`}>{scanState.type === 'success' ? <CheckCircle2 /> : <ScanFace />}<div><strong>{scanState.message}</strong>{scanState.student?.classes?.name && <small>{scanState.student.classes.name} · kecocokan {Number(scanState.confidence).toFixed(1)}%</small>}</div></div>}
-              </div>
-              <div className="scanner-controls">{!scanning ? <button className="button primary" disabled={sessionData.status !== 'open' || busy} onClick={startScanner}><Video size={18} /> {busy ? 'Menyiapkan model...' : `Aktifkan kamera ${scanMode === 'entry' ? 'masuk' : 'pulang'}`}</button> : <button className="button secondary" onClick={stopScanner}><VideoOff size={18} /> Matikan kamera</button>}<span>Ambang kecocokan {Math.round(Number(settings.face_threshold) * 100)}%</span></div>
-            </article>
+            <FaceScanner profiles={profiles} identityKey="student_id" personKey="students" threshold={Number(settings.face_threshold || 0.5)} entryTime={settings.entry_time} exitTime={settings.exit_time} tolerance={Number(settings.tolerance_minutes || 0)} disabled={sessionData.status !== 'open'} subjectLabel="siswa" onRecognized={recognizeStudent} onStateChange={setScanState} setToast={setToast} />
 
             <article className="panel attendance-list-panel">
               <div className="panel-heading"><div><p className="eyebrow">DAFTAR SISWA</p><h2>Kehadiran sekolah</h2></div><span className="panel-badge">{counts.present + counts.late}/{records.length} hadir</span></div>
@@ -330,7 +220,7 @@ export default function Attendance({ setToast }) {
           </section>
         </>
       )}
-      <ConfirmDialog open={resetOpen} title="Reset absensi hari ini?" description="Seluruh status, waktu masuk, waktu pulang, dan nilai kecocokan hari ini akan dikosongkan. Semua siswa kembali menjadi tidak hadir dan sesi dibuka lagi untuk pengujian." confirmLabel="Ya, reset absensi" busy={busy} onClose={() => setResetOpen(false)} onConfirm={resetSession} />
+      <ConfirmDialog open={resetOpen} title="Reset absensi hari ini?" description="Seluruh status, waktu masuk, waktu pulang, skor verifikasi, dan jarak wajah hari ini akan dikosongkan. Semua siswa kembali menjadi tidak hadir dan sesi dibuka lagi untuk pengujian." confirmLabel="Ya, reset absensi" busy={busy} onClose={() => setResetOpen(false)} onConfirm={resetSession} />
     </div>
   )
 }

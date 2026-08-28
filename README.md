@@ -7,11 +7,11 @@ Sistem administrasi dan absensi siswa berbasis pengenalan wajah. Frontend dibuat
 - Manajemen siswa, kelas, guru, jurusan, dan guru wali.
 - Import Excel beserta template XLSX dan validasi untuk seluruh data master.
 - Pagination pada tabel data master dan laporan.
-- Registrasi lima sampel wajah per siswa melalui kamera browser dengan pemeriksaan kualitas, jarak, dan pencahayaan.
+- Registrasi lima sampel wajah per siswa dan guru melalui kamera browser dengan pemeriksaan kualitas, jarak, dan pencahayaan.
 - Pengaturan waktu masuk, waktu pulang, dan batas toleransi dari menu admin.
 - Satu sesi absensi sekolah per hari di ruang guru dengan mode wajah masuk/pulang, konfirmasi tiga frame, pemeriksaan kandidat ambigu, skor kecocokan, dan pencegahan check-in berulang.
 - Notifikasi hasil pemindaian di bagian atas halaman beserta suara berhasil dan gagal.
-- Absensi masuk/pulang guru, koreksi status manual, dan reset data pengujian hari ini.
+- Absensi wajah masuk/pulang guru, koreksi status manual, dan reset data pengujian hari ini.
 - Tanggal absensi dan reset sesi hari ini untuk pengujian ulang dengan konfirmasi pengaman.
 - Koreksi status dan pencatatan pulang manual untuk siswa tanpa profil wajah.
 - Filter siswa per kelas lengkap dengan jumlah siswa pada setiap kelas.
@@ -56,18 +56,20 @@ Segera ubah password melalui menu profil → **Ubah password** setelah login per
 1. Tambahkan jurusan dan guru.
 2. Tambahkan kelas, kemudian pilih guru wali.
 3. Tambahkan siswa dan tempatkan ke kelas.
-4. Buka **Registrasi Wajah**, pilih siswa, lalu ambil lima sampel sesuai petunjuk arah wajah.
+4. Buka **Registrasi Wajah**, pilih tab siswa atau guru, lalu ambil lima sampel sesuai petunjuk arah wajah.
 5. Atur jadwal melalui **Pengaturan Waktu**. Batas terlambat adalah waktu masuk + toleransi, sedangkan absensi pulang dibuka pada waktu pulang − toleransi.
 6. Buka **Absensi Siswa**, mulai satu sesi sekolah, lalu pilih mode **Absensi masuk** atau **Absensi pulang** sebelum mengaktifkan kamera.
 7. Sistem mencocokkan wajah dengan seluruh siswa aktif dan tetap menampilkan kelas serta kedua waktu absensinya.
 8. Selesaikan sesi dan buka **Laporan** untuk melihat rekap masuk/pulang.
-9. Gunakan **Absensi Guru** untuk mencatat jam masuk/pulang guru dan menampilkan rekapnya pada tab laporan guru.
+9. Gunakan **Absensi Guru** untuk memindai wajah masuk/pulang guru dan menampilkan rekapnya pada tab laporan guru.
 
 ## Catatan pengenalan wajah
 
 - Kamera browser membutuhkan HTTPS atau `localhost` dan izin eksplisit dari pengguna.
 - Ambil sampel di ruangan terang, tanpa penutup wajah, dari posisi lurus serta sedikit ke kiri/kanan.
 - Ambang bawaan adalah jarak Euclidean `0.500`; nilai lebih kecil lebih ketat.
+- Keputusan identitas memakai median jarak dari tiga frame berurutan, bukan satu frame terakhir.
+- Skor verifikasi bukan probabilitas statistik: jarak `0` dipetakan ke skor `100`, sedangkan jarak tepat pada ambang penolakan dipetakan ke `70`. Jarak mentah tetap disimpan untuk audit.
 - Foto pratinjau dan descriptor wajah merupakan data biometrik. Batasi akses admin, gunakan HTTPS, dan terapkan kebijakan retensi/persetujuan sekolah.
 
 ## Pengembangan frontend
@@ -103,6 +105,9 @@ docker exec -i absensi_mantu_postgres_db \
 docker exec -i absensi_mantu_postgres_db \
   psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
   < database/07_remove_legacy_dummy_data.sql
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/08_teacher_face_and_match_score.sql
 docker compose up -d --build
 ```
 

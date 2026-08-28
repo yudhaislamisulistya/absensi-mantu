@@ -1,6 +1,7 @@
-import { CalendarDays, CheckCircle2, Clock3, LogIn, LogOut, RotateCcw, Search, Users } from 'lucide-react'
+import { AlertCircle, CalendarDays, CheckCircle2, Clock3, LogIn, LogOut, RotateCcw, ScanFace, Search, Users } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
+import FaceScanner from '../components/FaceScanner'
 import { ConfirmDialog, DataTable, PageHeader, StatusBadge, formatTime, initials } from '../components/ui'
 
 function localDate() {
@@ -17,22 +18,26 @@ function shortTime(value) {
 
 export default function TeacherAttendance({ setToast }) {
   const [records, setRecords] = useState([])
-  const [settings, setSettings] = useState({ entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15 })
+  const [profiles, setProfiles] = useState([])
+  const [settings, setSettings] = useState({ entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15, face_threshold: 0.5 })
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState('')
   const [resetOpen, setResetOpen] = useState(false)
+  const [scanState, setScanState] = useState({ type: 'idle', message: 'Kamera belum diaktifkan' })
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
       await api.rpc('prepare_teacher_attendance')
-      const [rows, settingRows] = await Promise.all([
+      const [rows, settingRows, faceRows] = await Promise.all([
         api.get(`teacher_attendance_records?select=*,teachers(id,nip,name)&attendance_date=eq.${localDate()}&order=teachers(name).asc`),
-        api.get('school_settings?select=entry_time,exit_time,tolerance_minutes&id=eq.1'),
+        api.get('school_settings?select=entry_time,exit_time,tolerance_minutes,face_threshold&id=eq.1'),
+        api.get('teacher_face_profiles?select=teacher_id,descriptors,teachers!inner(id,nip,name,status)&teachers.status=eq.active'),
       ])
       setRecords(rows)
-      setSettings(settingRows[0] || { entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15 })
+      setProfiles(faceRows)
+      setSettings(settingRows[0] || { entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15, face_threshold: 0.5 })
     } catch (error) {
       setToast({ type: 'error', message: error.message, sound: true })
     } finally {
@@ -41,6 +46,17 @@ export default function TeacherAttendance({ setToast }) {
   }, [setToast])
 
   useEffect(() => { loadData() }, [loadData])
+
+  async function recognizeTeacher(match, event, distance, score) {
+    const existing = records.find((row) => row.teacher_id === match.teacher_id)
+    const alreadyRecorded = event === 'entry' ? existing?.check_in_at : existing?.check_out_at
+    if (alreadyRecorded) {
+      return { message: `${match.teachers.name} sudah absen ${event === 'entry' ? 'masuk' : 'pulang'}.`, confidence: score, subline: `NIP ${match.teachers.nip}` }
+    }
+    const updated = await api.rpc('check_teacher_face', { p_teacher_id: match.teacher_id, p_event: event, p_distance: distance })
+    setRecords((current) => current.map((row) => row.id === updated.id ? { ...row, ...updated } : row))
+    return { message: `${match.teachers.name} berhasil absen ${event === 'entry' ? 'masuk' : 'pulang'} dengan wajah.`, confidence: event === 'entry' ? updated.confidence : updated.check_out_confidence, subline: `NIP ${match.teachers.nip}` }
+  }
 
   async function recordEvent(record, event) {
     setBusyId(`${record.id}:${event}`)
@@ -63,6 +79,12 @@ export default function TeacherAttendance({ setToast }) {
         status,
         check_in_at: attended ? record.check_in_at || new Date().toISOString() : null,
         check_out_at: attended ? record.check_out_at : null,
+        confidence: null,
+        face_distance: null,
+        method: 'manual',
+        check_out_confidence: attended ? record.check_out_confidence : null,
+        check_out_face_distance: attended ? record.check_out_face_distance : null,
+        check_out_method: attended ? record.check_out_method : null,
       })
       setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
       setToast({ message: `Status ${record.teachers.name} diperbarui.` })
@@ -109,10 +131,11 @@ export default function TeacherAttendance({ setToast }) {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="KEHADIRAN GURU" title="Absensi Guru" description="Pencatatan absensi masuk dan pulang guru dengan status otomatis mengikuti pengaturan waktu sekolah." />
+      <PageHeader eyebrow="KEHADIRAN GURU" title="Absensi Guru" description="Absensi wajah masuk dan pulang guru dengan status otomatis mengikuti pengaturan waktu sekolah; koreksi manual tetap tersedia untuk admin." />
+      {scanState.type !== 'idle' && <div className={`scan-status-banner scan-status-${scanState.type}`} role="status">{scanState.type === 'success' ? <CheckCircle2 /> : scanState.type === 'scanning' ? <ScanFace /> : <AlertCircle />}<div><strong>{scanState.type === 'success' ? 'Absensi guru berhasil' : scanState.type === 'scanning' ? 'Pemindaian guru berjalan' : 'Absensi guru belum berhasil'}</strong><span>{scanState.message}</span></div></div>}
       <section className="attendance-setup panel">
         <div className="school-attendance-title"><span><Users size={19} /></span><div><label>Absensi guru hari ini</label><strong><CalendarDays size={14} /> {dateLabel(localDate())}</strong><small>{records.length} guru aktif</small></div></div>
-        <div className="session-meta"><span><Clock3 size={17} /> {shortTime(settings.entry_time)}–{shortTime(settings.exit_time)}</span><span>Toleransi {settings.tolerance_minutes} menit</span><StatusBadge value="open" /></div>
+        <div className="session-meta"><span><ScanFace size={17} /> {profiles.length} wajah guru</span><span><Clock3 size={17} /> {shortTime(settings.entry_time)}–{shortTime(settings.exit_time)} · toleransi {settings.tolerance_minutes} menit</span><StatusBadge value="open" /></div>
         <button className="button secondary" disabled={Boolean(busyId)} onClick={() => setResetOpen(true)}><RotateCcw size={16} /> Reset absensi</button>
       </section>
       <section className="attendance-stats">
@@ -121,9 +144,12 @@ export default function TeacherAttendance({ setToast }) {
         <div><span className="dot absent" /><p>Tidak hadir<strong>{counts.absent}</strong></p></div>
         <div><span className="dot checked-out" /><p>Sudah pulang<strong>{counts.checkedOut}</strong></p></div>
       </section>
-      <section className="panel table-panel">
-        <div className="table-toolbar"><div><p className="eyebrow">DAFTAR GURU</p><h2>Kehadiran hari ini</h2></div><label className="search-box"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau NIP..." /></label></div>
-        <DataTable columns={columns} rows={filtered} loading={loading} emptyTitle="Belum ada guru aktif" emptyText="Tambahkan guru aktif agar dapat melakukan absensi." />
+      <section className="scanner-grid teacher-scanner-grid">
+        <FaceScanner profiles={profiles} identityKey="teacher_id" personKey="teachers" threshold={Number(settings.face_threshold || 0.5)} entryTime={settings.entry_time} exitTime={settings.exit_time} tolerance={Number(settings.tolerance_minutes || 0)} disabled={loading} subjectLabel="guru" onRecognized={recognizeTeacher} onStateChange={setScanState} setToast={setToast} />
+        <article className="panel table-panel attendance-list-panel">
+          <div className="table-toolbar"><div><p className="eyebrow">DAFTAR GURU</p><h2>Kehadiran hari ini</h2></div><label className="search-box"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau NIP..." /></label></div>
+          <DataTable columns={columns} rows={filtered} loading={loading} emptyTitle="Belum ada guru aktif" emptyText="Tambahkan guru aktif agar dapat melakukan absensi." />
+        </article>
       </section>
       <ConfirmDialog open={resetOpen} title="Reset absensi guru hari ini?" description="Seluruh status serta waktu masuk dan pulang guru hari ini akan dikosongkan untuk pengujian ulang." confirmLabel="Ya, reset absensi" busy={busyId === 'reset'} onClose={() => setResetOpen(false)} onConfirm={resetAttendance} />
     </div>
