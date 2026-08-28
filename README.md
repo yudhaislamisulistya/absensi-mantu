@@ -108,7 +108,7 @@ Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi se
 ## Data demonstrasi
 
 Seed berikut mengisi 4 jurusan, 12 guru, 8 kelas beserta guru wali, 64 siswa,
-48 profil wajah sintetis, serta riwayat absensi semester berjalan:
+48 profil wajah sintetis, serta riwayat absensi siswa dan guru pada semester berjalan:
 
 ```bash
 docker exec -i absensi_mantu_postgres_db \

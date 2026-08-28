@@ -314,6 +314,51 @@ ON CONFLICT (session_id, student_id) DO UPDATE SET
   check_out_method = EXCLUDED.check_out_method,
   notes = EXCLUDED.notes;
 
+WITH semester AS (
+  SELECT make_date(
+    extract(year FROM CURRENT_DATE)::int,
+    CASE WHEN extract(month FROM CURRENT_DATE) <= 6 THEN 1 ELSE 7 END,
+    1
+  ) AS start_date
+), school_days AS (
+  SELECT day::date AS attendance_date
+  FROM semester, generate_series(start_date, CURRENT_DATE, interval '1 day') day
+  WHERE extract(isodow FROM day) BETWEEN 1 AND 5
+), seed_rows AS (
+  SELECT teacher.id AS teacher_id, teacher.nip, day.attendance_date,
+         mod(abs(hashtext(teacher.nip || day.attendance_date::text)::bigint), 100)::int AS bucket
+  FROM teachers teacher CROSS JOIN school_days day
+  WHERE teacher.nip LIKE 'DMY-%'
+), valued AS (
+  SELECT *, CASE WHEN bucket < 84 THEN 'present' WHEN bucket < 94 THEN 'late' ELSE 'absent' END AS attendance_status
+  FROM seed_rows
+)
+INSERT INTO teacher_attendance_records (
+  teacher_id, attendance_date, status, check_in_at, check_out_at, method, notes
+)
+SELECT
+  teacher_id,
+  attendance_date,
+  attendance_status,
+  CASE attendance_status
+    WHEN 'present' THEN ((attendance_date + time '06:40') AT TIME ZONE 'Asia/Jakarta') + ((bucket % 25) || ' minutes')::interval
+    WHEN 'late' THEN ((attendance_date + time '07:20') AT TIME ZONE 'Asia/Jakarta') + ((bucket % 20) || ' minutes')::interval
+    ELSE NULL
+  END,
+  CASE WHEN attendance_status IN ('present', 'late') AND attendance_date < CURRENT_DATE
+    THEN ((attendance_date + time '14:50') AT TIME ZONE 'Asia/Jakarta') + ((bucket % 35) || ' minutes')::interval
+    ELSE NULL
+  END,
+  'manual',
+  CASE WHEN attendance_status = 'absent' THEN 'Data dummy: guru tidak hadir' ELSE NULL END
+FROM valued
+ON CONFLICT (teacher_id, attendance_date) DO UPDATE SET
+  status = EXCLUDED.status,
+  check_in_at = EXCLUDED.check_in_at,
+  check_out_at = EXCLUDED.check_out_at,
+  method = EXCLUDED.method,
+  notes = EXCLUDED.notes;
+
 DO $$
 DECLARE
   v_students integer;
@@ -321,6 +366,7 @@ DECLARE
   v_classes_without_guardian integer;
   v_classes_wrong_size integer;
   v_orphan_records integer;
+  v_teacher_attendance integer;
 BEGIN
   SELECT count(*) INTO v_students FROM students WHERE nis LIKE 'DMY-%';
   SELECT count(*) INTO v_faces FROM face_profiles fp JOIN students s ON s.id = fp.student_id WHERE s.nis LIKE 'DMY-%';
@@ -333,12 +379,15 @@ BEGIN
   ) invalid_classes;
   SELECT count(*) INTO v_orphan_records
     FROM attendance_records ar LEFT JOIN students s ON s.id = ar.student_id WHERE s.id IS NULL;
+  SELECT count(*) INTO v_teacher_attendance
+    FROM teacher_attendance_records tar JOIN teachers t ON t.id = tar.teacher_id WHERE t.nip LIKE 'DMY-%';
 
   IF v_students <> 64 THEN RAISE EXCEPTION 'Seed gagal: jumlah siswa %, seharusnya 64', v_students; END IF;
   IF v_faces <> 48 THEN RAISE EXCEPTION 'Seed gagal: jumlah profil wajah %, seharusnya 48', v_faces; END IF;
   IF v_classes_without_guardian <> 0 THEN RAISE EXCEPTION 'Seed gagal: ada kelas tanpa guru wali'; END IF;
   IF v_classes_wrong_size <> 0 THEN RAISE EXCEPTION 'Seed gagal: jumlah siswa per kelas bukan 8'; END IF;
   IF v_orphan_records <> 0 THEN RAISE EXCEPTION 'Seed gagal: ada catatan absensi yatim'; END IF;
+  IF v_teacher_attendance = 0 THEN RAISE EXCEPTION 'Seed gagal: catatan absensi guru tidak terbentuk'; END IF;
 END;
 $$;
 
@@ -349,6 +398,7 @@ ANALYZE students;
 ANALYZE face_profiles;
 ANALYZE attendance_sessions;
 ANALYZE attendance_records;
+ANALYZE teacher_attendance_records;
 
 COMMIT;
 
@@ -359,4 +409,5 @@ UNION ALL SELECT 'students', count(*) FROM students WHERE nis LIKE 'DMY-%'
 UNION ALL SELECT 'face_profiles', count(*) FROM face_profiles fp JOIN students s ON s.id = fp.student_id WHERE s.nis LIKE 'DMY-%'
 UNION ALL SELECT 'attendance_sessions', count(*) FROM attendance_sessions
 UNION ALL SELECT 'attendance_records', count(*) FROM attendance_records ar JOIN students s ON s.id = ar.student_id WHERE s.nis LIKE 'DMY-%'
+UNION ALL SELECT 'teacher_attendance_records', count(*) FROM teacher_attendance_records tar JOIN teachers t ON t.id = tar.teacher_id WHERE t.nip LIKE 'DMY-%'
 ORDER BY feature;
