@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronLeft, ChevronRight, Inbox, LoaderCircle, Search, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Inbox, LoaderCircle, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 export function PageHeader({ eyebrow, title, description, action }) {
@@ -115,11 +115,36 @@ export function StatusBadge({ value }) {
   return <span className={`status status-${value}`}>{labels[value] || value || '-'}</span>
 }
 
+function playFeedback(type) {
+  const AudioContext = window.AudioContext || window.webkitAudioContext
+  if (!AudioContext) return
+  const context = new AudioContext()
+  const frequencies = type === 'error' ? [220, 165] : [660, 880]
+  frequencies.forEach((frequency, index) => {
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    const start = context.currentTime + index * 0.13
+    oscillator.type = 'sine'
+    oscillator.frequency.value = frequency
+    gain.gain.setValueAtTime(0.0001, start)
+    gain.gain.exponentialRampToValueAtTime(0.12, start + 0.015)
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.11)
+    oscillator.connect(gain).connect(context.destination)
+    oscillator.start(start)
+    oscillator.stop(start + 0.12)
+  })
+  window.setTimeout(() => context.close(), 500)
+}
+
 export function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (toast?.sound) playFeedback(toast.type || 'success')
+  }, [toast])
   if (!toast) return null
   return (
-    <div className={`toast toast-${toast.type || 'success'}`} role="status">
-      <span>{toast.message}</span><button type="button" onClick={onClose}><X size={16} /></button>
+    <div className={`toast toast-${toast.type || 'success'}`} role={toast.type === 'error' ? 'alert' : 'status'}>
+      {toast.type === 'error' ? <AlertTriangle className="toast-icon" /> : <CheckCircle2 className="toast-icon" />}
+      <span>{toast.message}</span><button type="button" onClick={onClose} aria-label="Tutup notifikasi"><X size={16} /></button>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import FaceRegistration from './pages/FaceRegistration'
 import Login from './pages/Login'
 import Reports from './pages/Reports'
 import SettingsPage from './pages/Settings'
+import TeacherAttendance from './pages/TeacherAttendance'
 
 function validPage() {
   const hash = window.location.hash.replace('#', '')
@@ -74,6 +75,7 @@ export default function App() {
     homeroom: <HomeroomPage setToast={setToast} />,
     faces: <FaceRegistration setToast={setToast} />,
     attendance: <Attendance setToast={setToast} />,
+    'teacher-attendance': <TeacherAttendance setToast={setToast} />,
     reports: <Reports setToast={setToast} />,
     settings: <SettingsPage setToast={setToast} />,
   }

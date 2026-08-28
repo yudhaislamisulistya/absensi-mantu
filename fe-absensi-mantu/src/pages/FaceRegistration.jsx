@@ -1,7 +1,7 @@
 import { Camera, Check, CheckCircle2, ChevronLeft, ChevronRight, ImagePlus, RefreshCw, ShieldCheck, Trash2, UserRound, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
-import { detectFace, loadFaceModels, openCamera, stopCamera, videoThumbnail } from '../face'
+import { detectFace, faceQuality, loadFaceModels, openCamera, stopCamera, videoThumbnail } from '../face'
 import { ConfirmDialog, EmptyState, Loading, Modal, PageHeader, SearchBox, formatDate, initials } from '../components/ui'
 
 function CaptureModal({ student, onClose, onSaved, setToast }) {
@@ -12,7 +12,7 @@ function CaptureModal({ student, onClose, onSaved, setToast }) {
   const [samples, setSamples] = useState([])
   const [photo, setPhoto] = useState('')
   const [message, setMessage] = useState('Menyiapkan model pengenalan wajah...')
-  const prompts = ['Hadapkan wajah lurus ke kamera', 'Miringkan wajah sedikit ke kiri', 'Miringkan wajah sedikit ke kanan']
+  const prompts = ['Hadapkan wajah lurus ke kamera', 'Miringkan wajah sedikit ke kiri', 'Miringkan wajah sedikit ke kanan', 'Angkat dagu sedikit', 'Turunkan dagu sedikit']
 
   useEffect(() => {
     let active = true
@@ -32,19 +32,20 @@ function CaptureModal({ student, onClose, onSaved, setToast }) {
   }, [])
 
   async function capture() {
-    if (!ready || busy || samples.length >= 3) return
+    if (!ready || busy || samples.length >= 5) return
     setBusy(true)
     setMessage('Mendeteksi satu wajah...')
     try {
-      const result = await detectFace(videoRef.current, 224)
-      if (!result) {
-        setMessage('Wajah belum terdeteksi. Hadap kamera dan perbaiki pencahayaan.')
+      const result = await detectFace(videoRef.current, 416)
+      const qualityError = faceQuality(result, videoRef.current)
+      if (qualityError) {
+        setMessage(qualityError)
         return
       }
       const next = [...samples, Array.from(result.descriptor)]
       setSamples(next)
       if (!photo) setPhoto(videoThumbnail(videoRef.current))
-      setMessage(next.length === 3 ? 'Tiga sampel berhasil diambil. Profil siap disimpan.' : `Sampel ${next.length} berhasil. ${prompts[next.length]}`)
+      setMessage(next.length === 5 ? 'Lima sampel berkualitas berhasil diambil. Profil siap disimpan.' : `Sampel ${next.length} berhasil. ${prompts[next.length]}`)
     } catch (error) {
       setMessage(`Gagal mengambil sampel: ${error.message}`)
     } finally { setBusy(false) }
@@ -61,7 +62,7 @@ function CaptureModal({ student, onClose, onSaved, setToast }) {
   }
 
   return (
-    <Modal open title={`Registrasi wajah — ${student.name}`} description="Ambil tiga sudut wajah untuk meningkatkan akurasi pencocokan." size="lg" onClose={onClose}>
+    <Modal open title={`Registrasi wajah — ${student.name}`} description="Ambil lima variasi wajah berkualitas untuk meningkatkan akurasi pencocokan." size="lg" onClose={onClose}>
       <div className="modal-body capture-layout">
         <div className="camera-frame registration-camera">
           <video ref={videoRef} muted playsInline />
@@ -71,13 +72,13 @@ function CaptureModal({ student, onClose, onSaved, setToast }) {
         <div className="capture-sidebar">
           <div className="capture-person"><span className="avatar">{initials(student.name)}</span><div><strong>{student.name}</strong><small>NIS {student.nis} · {student.classes?.name || 'Tanpa kelas'}</small></div></div>
           <div className="capture-progress">
-            {[0, 1, 2].map((index) => <div className={samples[index] ? 'done' : index === samples.length ? 'current' : ''} key={index}><span>{samples[index] ? <Check size={16} /> : index + 1}</span><div><strong>Sampel {index + 1}</strong><small>{['Posisi lurus', 'Sedikit ke kiri', 'Sedikit ke kanan'][index]}</small></div></div>)}
+            {[0, 1, 2, 3, 4].map((index) => <div className={samples[index] ? 'done' : index === samples.length ? 'current' : ''} key={index}><span>{samples[index] ? <Check size={16} /> : index + 1}</span><div><strong>Sampel {index + 1}</strong><small>{['Posisi lurus', 'Sedikit ke kiri', 'Sedikit ke kanan', 'Dagu sedikit naik', 'Dagu sedikit turun'][index]}</small></div></div>)}
           </div>
           <div className="capture-message"><ShieldCheck size={17} /><span>{message}</span></div>
-          <button className="button secondary full" type="button" disabled={!ready || busy || samples.length >= 3} onClick={capture}><Camera size={18} /> {busy ? 'Mendeteksi...' : samples.length >= 3 ? 'Sampel lengkap' : `Ambil sampel ${samples.length + 1}`}</button>
+          <button className="button secondary full" type="button" disabled={!ready || busy || samples.length >= 5} onClick={capture}><Camera size={18} /> {busy ? 'Mendeteksi...' : samples.length >= 5 ? 'Sampel lengkap' : `Ambil sampel ${samples.length + 1}`}</button>
         </div>
       </div>
-      <div className="modal-footer"><button className="button secondary" type="button" onClick={onClose}>Batal</button><button className="button primary" type="button" disabled={samples.length < 3 || busy} onClick={save}><CheckCircle2 size={18} /> Simpan profil wajah</button></div>
+      <div className="modal-footer"><button className="button secondary" type="button" onClick={onClose}>Batal</button><button className="button primary" type="button" disabled={samples.length < 5 || busy} onClick={save}><CheckCircle2 size={18} /> Simpan profil wajah</button></div>
     </Modal>
   )
 }
@@ -141,7 +142,7 @@ export default function FaceRegistration({ setToast }) {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="PENGENALAN WAJAH" title="Registrasi Wajah Siswa" description="Daftarkan tiga sampel wajah setiap siswa agar proses absensi lebih akurat." />
+      <PageHeader eyebrow="PENGENALAN WAJAH" title="Registrasi Wajah Siswa" description="Daftarkan lima sampel berkualitas setiap siswa agar proses absensi lebih akurat dan stabil." />
       <section className="face-summary">
         <div><span className="stat-icon teal"><UserRound /></span><p>Total siswa aktif<strong>{students.length}</strong></p></div>
         <div><span className="stat-icon blue"><CheckCircle2 /></span><p>Sudah terdaftar<strong>{registered}</strong></p></div>

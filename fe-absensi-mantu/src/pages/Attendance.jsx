@@ -1,7 +1,7 @@
-import { CalendarDays, CheckCircle2, LogIn, LogOut, Play, RotateCcw, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
+import { AlertCircle, CalendarDays, CheckCircle2, LogIn, LogOut, Play, RotateCcw, ScanFace, Search, Square, Users, Video, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
-import { bestMatch, detectFace, loadFaceModels, openCamera, stopCamera } from '../face'
+import { bestMatch, detectFace, faceQuality, loadFaceModels, openCamera, stopCamera } from '../face'
 import { ConfirmDialog, EmptyState, Loading, PageHeader, StatusBadge, formatTime, initials } from '../components/ui'
 
 function localDate() {
@@ -49,6 +49,8 @@ export default function Attendance({ setToast }) {
   const streamRef = useRef(null)
   const detectingRef = useRef(false)
   const lastSeenRef = useRef({})
+  const candidateRef = useRef({ key: '', count: 0 })
+  const notificationRef = useRef({ key: '', at: 0 })
 
   const loadRecords = useCallback(async (sessionId) => {
     if (!sessionId) return []
@@ -86,6 +88,7 @@ export default function Attendance({ setToast }) {
     stopCamera(streamRef.current)
     streamRef.current = null
     setScanning(false)
+    candidateRef.current = { key: '', count: 0 }
     setScanState({ type: 'idle', message: 'Kamera belum diaktifkan' })
   }
 
@@ -119,7 +122,8 @@ export default function Attendance({ setToast }) {
       await loadFaceModels()
       streamRef.current = await openCamera(videoRef.current)
       setScanning(true)
-      setScanState({ type: 'scanning', message: 'Arahkan satu wajah ke area kamera' })
+      candidateRef.current = { key: '', count: 0 }
+      setScanState({ type: 'scanning', message: 'Arahkan satu wajah ke area kamera dan tahan posisi' })
     } catch (error) {
       setToast({ type: 'error', message: error.name === 'NotAllowedError' ? 'Izin kamera ditolak oleh browser.' : error.message })
     } finally {
@@ -129,39 +133,76 @@ export default function Attendance({ setToast }) {
 
   useEffect(() => {
     if (!scanning || !sessionData || sessionData.status !== 'open') return undefined
+    function showResult(type, message, sound = false) {
+      setScanState({ type, message })
+      const key = `${type}:${message}`
+      const now = Date.now()
+      if (notificationRef.current.key !== key || now - notificationRef.current.at > 5000) {
+        notificationRef.current = { key, at: now }
+        setToast({ type: type === 'success' ? 'success' : 'error', message, sound })
+      }
+    }
     const interval = window.setInterval(async () => {
       if (detectingRef.current || !videoRef.current?.videoWidth) return
       detectingRef.current = true
       try {
         const detection = await detectFace(videoRef.current)
         if (!detection) {
-          setScanState({ type: 'scanning', message: 'Wajah belum terlihat dengan jelas' })
+          candidateRef.current = { key: '', count: 0 }
+          setScanState({ type: 'scanning', message: 'Menunggu wajah terlihat jelas di dalam area kamera.' })
+          return
+        }
+        const qualityMessage = faceQuality(detection, videoRef.current)
+        if (qualityMessage) {
+          candidateRef.current = { key: '', count: 0 }
+          showResult('unknown', qualityMessage, true)
           return
         }
         const match = bestMatch(detection.descriptor, profiles)
         const threshold = Number(settings.face_threshold || 0.5)
         if (!match || match.distance > threshold) {
-          setScanState({ type: 'unknown', message: 'Wajah tidak dikenali. Coba posisikan ulang.' })
+          candidateRef.current = { key: '', count: 0 }
+          showResult('unknown', 'Wajah tidak dikenali. Hadapkan wajah ke kamera dan coba lagi.', true)
           return
         }
+        if (match.gap < 0.035) {
+          candidateRef.current = { key: '', count: 0 }
+          showResult('unknown', 'Hasil wajah belum cukup pasti. Pastikan hanya satu orang di depan kamera.', true)
+          return
+        }
+        const candidateKey = `${scanMode}:${match.student_id}`
         const now = Date.now()
-        const seenKey = `${scanMode}:${match.student_id}`
+        if (now - (lastSeenRef.current[candidateKey] || 0) < 8000) return
+        candidateRef.current = candidateRef.current.key === candidateKey
+          ? { key: candidateKey, count: candidateRef.current.count + 1 }
+          : { key: candidateKey, count: 1 }
+        if (candidateRef.current.count < 3) {
+          setScanState({ type: 'scanning', message: `Memastikan wajah ${match.students.name} (${candidateRef.current.count}/3)…` })
+          return
+        }
+        const seenKey = candidateKey
         if (now - (lastSeenRef.current[seenKey] || 0) < 8000) return
-        lastSeenRef.current[seenKey] = now
         const rpcName = scanMode === 'entry' ? 'check_in_face' : 'check_out_face'
         const saved = await api.rpc(rpcName, { p_session_id: sessionData.id, p_student_id: match.student_id, p_distance: match.distance })
+        lastSeenRef.current[seenKey] = now
+        candidateRef.current = { key: '', count: 0 }
         setRecords((current) => current.some((row) => row.id === saved.id)
           ? current.map((row) => row.id === saved.id ? { ...row, ...saved } : row)
           : [...current, { ...saved, students: match.students, classes: match.students.classes }])
-        setScanState({ type: 'success', message: `${match.students.name} berhasil absen ${scanMode === 'entry' ? 'masuk' : 'pulang'}`, student: match.students, confidence: scanMode === 'entry' ? saved.confidence : saved.check_out_confidence })
+        const message = `${match.students.name} berhasil absen ${scanMode === 'entry' ? 'masuk' : 'pulang'}.`
+        const confidence = scanMode === 'entry' ? saved.confidence : saved.check_out_confidence
+        setScanState({ type: 'success', message, student: match.students, confidence })
+        notificationRef.current = { key: `success:${message}`, at: now }
+        setToast({ message, sound: true })
       } catch (error) {
-        setScanState({ type: 'error', message: error.message })
+        candidateRef.current = { key: '', count: 0 }
+        showResult('error', error.message, true)
       } finally {
         detectingRef.current = false
       }
-    }, 1100)
+    }, 800)
     return () => window.clearInterval(interval)
-  }, [profiles, scanMode, scanning, sessionData, settings.face_threshold])
+  }, [profiles, scanMode, scanning, sessionData, settings.face_threshold, setToast])
 
   async function updateStatus(record, status) {
     try {
@@ -251,6 +292,7 @@ export default function Attendance({ setToast }) {
   return (
     <div className="page">
       <PageHeader eyebrow="KEHADIRAN REAL-TIME" title="Absensi Siswa" description="Satu pos absensi di ruang guru untuk mencatat kehadiran seluruh siswa di sekolah." />
+      {scanState.type !== 'idle' && <div className={`scan-status-banner scan-status-${scanState.type}`} role="status">{scanState.type === 'success' ? <CheckCircle2 /> : scanState.type === 'scanning' ? <ScanFace /> : <AlertCircle />}<div><strong>{scanState.type === 'success' ? 'Absensi berhasil' : scanState.type === 'scanning' ? 'Pemindaian berjalan' : 'Absensi belum berhasil'}</strong><span>{scanState.message}</span></div></div>}
       <section className="attendance-setup panel">
         <div className="school-attendance-title"><span><Users size={19} /></span><div><label>Absensi sekolah</label><strong><CalendarDays size={14} /> {dateLabel(sessionData?.attendance_date || localDate())}</strong><small>{records.length} siswa aktif dari {classes.length} kelas</small></div></div>
         <div className="session-meta"><span><ScanFace size={17} /> {profiles.length} wajah terdaftar</span><span>{timeLabel(settings.entry_time)}–{timeLabel(settings.exit_time)} · toleransi {settings.tolerance_minutes} menit</span>{sessionData && <StatusBadge value={sessionData.status} />}</div>

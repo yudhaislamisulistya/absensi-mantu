@@ -17,28 +17,41 @@ export async function loadFaceModels() {
   return faceApiPromise
 }
 
-export async function detectFace(video, inputSize = 320) {
+export async function detectFace(video, inputSize = 416) {
   const faceapi = await loadFaceModels()
   return faceapi
-    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.6 }))
+    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.45 }))
     .withFaceLandmarks()
     .withFaceDescriptor()
 }
 
+export function faceQuality(result, video) {
+  if (!result) return 'Wajah belum terdeteksi. Pastikan wajah terlihat utuh dan pencahayaan cukup.'
+  const box = result.detection?.box
+  if (Number(result.detection?.score || 0) < 0.7) return 'Wajah terdeteksi kurang jelas. Tambahkan cahaya dari arah depan.'
+  if (box && video?.videoWidth && box.width / video.videoWidth < 0.2) return 'Wajah terlalu jauh. Dekatkan posisi ke kamera.'
+  if (box && video?.videoWidth && (box.x < 0 || box.x + box.width > video.videoWidth)) return 'Wajah belum berada penuh di dalam area kamera.'
+  return ''
+}
+
 export function bestMatch(descriptor, profiles) {
-  let best = null
+  const matches = []
   for (const profile of profiles) {
+    const distances = []
     for (const saved of profile.descriptors || []) {
       if (!Array.isArray(saved) || saved.length !== descriptor.length) continue
       let squared = 0
       for (let index = 0; index < descriptor.length; index += 1) {
         squared += (descriptor[index] - saved[index]) ** 2
       }
-      const distance = Math.sqrt(squared)
-      if (!best || distance < best.distance) best = { ...profile, distance }
+      distances.push(Math.sqrt(squared))
     }
+    distances.sort((a, b) => a - b)
+    const selected = distances.slice(0, Math.min(3, distances.length))
+    if (selected.length) matches.push({ ...profile, distance: selected.reduce((sum, value) => sum + value, 0) / selected.length })
   }
-  return best
+  matches.sort((a, b) => a.distance - b.distance)
+  return matches[0] ? { ...matches[0], secondDistance: matches[1]?.distance ?? Infinity, gap: (matches[1]?.distance ?? Infinity) - matches[0].distance } : null
 }
 
 export function videoThumbnail(video) {
@@ -52,7 +65,7 @@ export function videoThumbnail(video) {
 
 export async function openCamera(video) {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 24, max: 30 } },
+    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
     audio: false,
   })
   video.srcObject = stream

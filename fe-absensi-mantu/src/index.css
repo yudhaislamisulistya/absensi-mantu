@@ -287,11 +287,12 @@ td strong { color: #26332f; }
 .confirm-content p { color: #5e6b68; font-size: 12px; line-height: 1.6; margin: 0; }
 .warning-icon { width: 43px; height: 43px; border-radius: 12px; display: grid; place-items: center; color: #d94c4c; background: #fff0f0; flex: 0 0 auto; }
 .password-icon { width: 45px; height: 45px; margin: 0 auto 3px; border-radius: 13px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
-.toast { position: fixed; z-index: 150; right: 25px; bottom: 25px; width: min(calc(100vw - 40px), 390px); background: #193c35; color: #fff; border-radius: 11px; box-shadow: 0 16px 50px rgba(19,42,36,.23); padding: 13px 13px 13px 16px; display: flex; align-items: center; gap: 12px; font-size: 11px; animation: toast-in .25s ease-out; }
+.toast { position: fixed; z-index: 150; top: 78px; left: 50%; transform: translateX(-50%); width: min(calc(100vw - 40px), 440px); background: #193c35; color: #fff; border-radius: 11px; box-shadow: 0 16px 50px rgba(19,42,36,.23); padding: 13px; display: flex; align-items: center; gap: 12px; font-size: 11px; animation: toast-in .25s ease-out; }
 .toast-error { background: #9d3434; }
 .toast span { flex: 1; }
+.toast-icon { width: 19px; flex: 0 0 auto; }
 .toast button { border: 0; background: rgba(255,255,255,.12); color: #fff; width: 27px; height: 27px; border-radius: 7px; display: grid; place-items: center; }
-@keyframes toast-in { from { transform: translateY(10px); opacity: 0; } }
+@keyframes toast-in { from { transform: translate(-50%, -10px); opacity: 0; } }
 .loading, .empty-state { min-height: 210px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #899693; text-align: center; padding: 30px; }
 .loading { gap: 9px; font-size: 11px; }
 .spin { animation: spin 1s linear infinite; color: var(--primary); }
@@ -404,6 +405,20 @@ td strong { color: #26332f; }
 .dot.checked-out, .summary-dot.checked-out { background: #3977bd; box-shadow: 0 0 0 5px #eaf2fc; }
 .attendance-stats p { margin: 0; display: flex; align-items: baseline; gap: 7px; color: #7d8986; font-size: 9px; }
 .attendance-stats strong { color: var(--ink); font-size: 18px; }
+.scan-status-banner { margin: -2px 0 14px; padding: 11px 14px; border: 1px solid #b9ded6; border-radius: 11px; background: #edf8f5; color: #1f675a; display: flex; align-items: center; gap: 10px; }
+.scan-status-banner > svg { width: 21px; flex: 0 0 auto; }
+.scan-status-banner > div { display: grid; gap: 2px; }
+.scan-status-banner strong { font-size: 10px; }
+.scan-status-banner span { font-size: 9px; color: #52736d; }
+.scan-status-unknown, .scan-status-error { border-color: #eac1bd; background: #fff1ef; color: #a23a31; }
+.scan-status-unknown span, .scan-status-error span { color: #825f5b; }
+.teacher-cell { display: flex; align-items: center; gap: 9px; }
+.teacher-cell > span:last-child { min-width: 0; }
+.time-value { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.time-value svg { width: 14px; color: var(--muted); }
+.teacher-attendance-actions { display: flex; justify-content: flex-end; }
+.small-button { min-height: 31px; padding: 7px 10px; font-size: 9px; }
+.small-button svg { width: 14px; }
 .scanner-grid { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(410px, 1.1fr); gap: 15px; }
 .scanner-panel, .attendance-list-panel { padding: 17px; min-width: 0; }
 .live-badge { color: #d94747; font-size: 8px; font-weight: 900; letter-spacing: .12em; }
@@ -454,6 +469,9 @@ td strong { color: #26332f; }
 /* Reports */
 .report-actions { display: flex; gap: 8px; }
 .report-filter { padding: 15px 17px; margin-bottom: 15px; }
+.report-type-tabs { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 11px; border: 1px solid var(--line); border-radius: 9px; background: #f4f7f6; }
+.report-type-tabs button { border: 0; border-radius: 6px; background: transparent; color: var(--muted); padding: 7px 13px; font-size: 9px; font-weight: 700; }
+.report-type-tabs button.active { background: var(--ink); color: #fff; box-shadow: 0 3px 9px rgba(19,42,36,.16); }
 .period-tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5ebe9; margin: -2px -1px 14px; }
 .period-tabs button { border: 0; background: none; padding: 9px 13px; color: #7e8b88; font-size: 10px; font-weight: 700; border-bottom: 2px solid transparent; }
 .period-tabs button.active { color: var(--primary); border-color: var(--primary); }
@@ -550,7 +568,7 @@ td strong { color: #26332f; }
   .excel-guide { align-items: stretch; flex-wrap: wrap; }
   .excel-guide > div { min-width: calc(100% - 55px); }
   .excel-guide .button { width: 100%; }
-  .toast { right: 20px; bottom: 20px; }
+  .toast { top: 70px; }
 }
 
 @media print {

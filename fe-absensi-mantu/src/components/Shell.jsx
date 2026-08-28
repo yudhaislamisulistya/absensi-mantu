@@ -1,6 +1,6 @@
 import {
   BarChart3, BookOpen, Building2, Camera, ChevronDown, Clock, GraduationCap, Home,
-  LogOut, Menu, School, Settings, ShieldCheck, UserCog, Users, X,
+  ClipboardCheck, LogOut, Menu, School, Settings, ShieldCheck, UserCog, Users, X,
 } from 'lucide-react'
 import { useState } from 'react'
 import { initials } from './ui'
@@ -16,6 +16,7 @@ export const navigation = [
   { section: 'Kehadiran' },
   { id: 'faces', label: 'Registrasi Wajah', icon: Camera },
   { id: 'attendance', label: 'Absensi Siswa', icon: ShieldCheck },
+  { id: 'teacher-attendance', label: 'Absensi Guru', icon: ClipboardCheck },
   { id: 'reports', label: 'Laporan', icon: BarChart3 },
   { section: 'Sistem' },
   { id: 'settings', label: 'Pengaturan Waktu', icon: Clock },

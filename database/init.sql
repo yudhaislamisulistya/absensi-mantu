@@ -124,11 +124,26 @@ CREATE TABLE attendance_records (
   UNIQUE (session_id, student_id)
 );
 
+CREATE TABLE teacher_attendance_records (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id uuid NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+  attendance_date date NOT NULL DEFAULT CURRENT_DATE,
+  status varchar(20) NOT NULL DEFAULT 'absent' CHECK (status IN ('present', 'late', 'absent')),
+  check_in_at timestamptz,
+  check_out_at timestamptz,
+  method varchar(20) NOT NULL DEFAULT 'manual' CHECK (method = 'manual'),
+  notes text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (teacher_id, attendance_date)
+);
+
 CREATE INDEX students_class_idx ON students(class_id);
 CREATE INDEX classes_major_idx ON classes(major_id);
 CREATE INDEX attendance_records_date_idx ON attendance_records(attendance_date);
 CREATE INDEX attendance_records_student_date_idx ON attendance_records(student_id, attendance_date);
 CREATE INDEX attendance_records_class_date_idx ON attendance_records(class_id, attendance_date);
+CREATE INDEX teacher_attendance_date_idx ON teacher_attendance_records(attendance_date);
 
 CREATE OR REPLACE FUNCTION touch_updated_at()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -146,6 +161,7 @@ CREATE TRIGGER students_touch BEFORE UPDATE ON students FOR EACH ROW EXECUTE FUN
 CREATE TRIGGER face_profiles_touch BEFORE UPDATE ON face_profiles FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER school_settings_touch BEFORE UPDATE ON school_settings FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 CREATE TRIGGER attendance_records_touch BEFORE UPDATE ON attendance_records FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+CREATE TRIGGER teacher_attendance_records_touch BEFORE UPDATE ON teacher_attendance_records FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 CREATE OR REPLACE FUNCTION base64url(p_data bytea)
 RETURNS text
@@ -442,6 +458,77 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION prepare_teacher_attendance()
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_count integer;
+BEGIN
+  INSERT INTO teacher_attendance_records (teacher_id, attendance_date)
+  SELECT teacher.id, CURRENT_DATE FROM teachers teacher WHERE teacher.status = 'active'
+  ON CONFLICT (teacher_id, attendance_date) DO NOTHING;
+  SELECT count(*) INTO v_count FROM teacher_attendance_records WHERE attendance_date = CURRENT_DATE;
+  RETURN jsonb_build_object('attendance_date', CURRENT_DATE, 'count', v_count);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION record_teacher_attendance(p_teacher_id uuid, p_event text)
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_record teacher_attendance_records;
+  v_entry_time time;
+  v_exit_time time;
+  v_tolerance smallint;
+BEGIN
+  IF p_event NOT IN ('entry', 'exit') THEN RAISE EXCEPTION 'Jenis absensi guru tidak valid'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM teachers WHERE id = p_teacher_id AND status = 'active') THEN
+    RAISE EXCEPTION 'Guru aktif tidak ditemukan';
+  END IF;
+  INSERT INTO teacher_attendance_records (teacher_id, attendance_date)
+  VALUES (p_teacher_id, CURRENT_DATE)
+  ON CONFLICT (teacher_id, attendance_date) DO NOTHING;
+  SELECT * INTO v_record FROM teacher_attendance_records
+  WHERE teacher_id = p_teacher_id AND attendance_date = CURRENT_DATE FOR UPDATE;
+  SELECT entry_time, exit_time, tolerance_minutes INTO v_entry_time, v_exit_time, v_tolerance
+  FROM school_settings WHERE id = 1;
+  IF p_event = 'entry' THEN
+    IF v_record.check_in_at IS NULL THEN
+      UPDATE teacher_attendance_records
+      SET status = CASE WHEN localtime > v_entry_time + make_interval(mins => v_tolerance) THEN 'late' ELSE 'present' END,
+          check_in_at = now(), method = 'manual'
+      WHERE id = v_record.id RETURNING * INTO v_record;
+    END IF;
+  ELSE
+    IF v_record.check_in_at IS NULL THEN RAISE EXCEPTION 'Guru belum melakukan absensi masuk'; END IF;
+    IF localtime < v_exit_time - make_interval(mins => v_tolerance) THEN
+      RAISE EXCEPTION 'Absensi pulang baru dapat dilakukan mulai pukul %',
+        to_char(v_exit_time - make_interval(mins => v_tolerance), 'HH24:MI');
+    END IF;
+    IF v_record.check_out_at IS NULL THEN
+      UPDATE teacher_attendance_records SET check_out_at = now()
+      WHERE id = v_record.id RETURNING * INTO v_record;
+    END IF;
+  END IF;
+  RETURN to_jsonb(v_record);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION reset_teacher_attendance()
+RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  DELETE FROM teacher_attendance_records WHERE attendance_date = CURRENT_DATE;
+  RETURN prepare_teacher_attendance();
+END;
+$$;
+
 INSERT INTO school_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
 INSERT INTO app_users (username, password_hash, full_name)
 VALUES ('admin', crypt('123456789', gen_salt('bf', 10)), 'Administrator')
@@ -455,10 +542,11 @@ GRANT USAGE ON SCHEMA public TO web_anon, app_admin;
 GRANT EXECUTE ON FUNCTION login(text, text) TO web_anon;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON majors, teachers, classes, students, face_profiles,
-  attendance_sessions, attendance_records TO app_admin;
+  attendance_sessions, attendance_records, teacher_attendance_records TO app_admin;
 GRANT SELECT, UPDATE ON school_settings TO app_admin;
 GRANT EXECUTE ON FUNCTION change_password(text, text), get_dashboard_summary(),
   start_attendance_session(), check_in_face(uuid, uuid, numeric), close_attendance_session(uuid),
-  check_out_face(uuid, uuid, numeric), reset_attendance_session(uuid) TO app_admin;
+  check_out_face(uuid, uuid, numeric), reset_attendance_session(uuid), prepare_teacher_attendance(),
+  record_teacher_attendance(uuid, text), reset_teacher_attendance() TO app_admin;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
