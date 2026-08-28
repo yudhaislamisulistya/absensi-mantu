@@ -39,7 +39,7 @@ export default function TeacherAttendance({ setToast }) {
       setProfiles(faceRows)
       setSettings(settingRows[0] || { entry_time: '07:00:00', exit_time: '15:00:00', tolerance_minutes: 15, face_threshold: 0.5 })
     } catch (error) {
-      setToast({ type: 'error', message: error.message, sound: true })
+      setToast({ type: 'error', message: error.message })
     } finally {
       setLoading(false)
     }

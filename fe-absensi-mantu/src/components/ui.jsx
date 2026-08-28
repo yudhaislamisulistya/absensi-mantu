@@ -116,6 +116,24 @@ export function StatusBadge({ value }) {
 }
 
 function playFeedback(type) {
+  const message = type === 'error'
+    ? 'Absensi gagal dilakukan, silakan coba lagi.'
+    : 'Absensi berhasil dilakukan.'
+
+  if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+    const utterance = new window.SpeechSynthesisUtterance(message)
+    const indonesianVoice = window.speechSynthesis.getVoices()
+      .find((voice) => voice.lang.toLowerCase().startsWith('id'))
+    utterance.lang = 'id-ID'
+    utterance.volume = 1
+    utterance.rate = 0.9
+    utterance.pitch = 1
+    if (indonesianVoice) utterance.voice = indonesianVoice
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utterance)
+    return
+  }
+
   const AudioContext = window.AudioContext || window.webkitAudioContext
   if (!AudioContext) return
   const context = new AudioContext()
@@ -127,7 +145,7 @@ function playFeedback(type) {
     oscillator.type = 'sine'
     oscillator.frequency.value = frequency
     gain.gain.setValueAtTime(0.0001, start)
-    gain.gain.exponentialRampToValueAtTime(0.12, start + 0.015)
+    gain.gain.exponentialRampToValueAtTime(0.3, start + 0.015)
     gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.11)
     oscillator.connect(gain).connect(context.destination)
     oscillator.start(start)
