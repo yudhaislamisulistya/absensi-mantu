@@ -94,14 +94,14 @@ export default function Attendance({ setToast }) {
     const existing = records.find((row) => row.student_id === match.student_id)
     const alreadyRecorded = mode === 'entry' ? existing?.check_in_at : existing?.check_out_at
     if (alreadyRecorded) {
-      return { message: `${match.students.name} sudah absen ${mode === 'entry' ? 'masuk' : 'pulang'}.`, confidence: score, subline: match.students.classes?.name, notify: false }
+      return { message: `${match.students.name} sudah absen ${mode === 'entry' ? 'masuk' : 'pulang'}.`, confidence: score, subline: match.students.classes?.name, recorded: false }
     }
     const rpcName = mode === 'entry' ? 'check_in_face' : 'check_out_face'
     const saved = await api.rpc(rpcName, { p_session_id: sessionData.id, p_student_id: match.student_id, p_distance: distance })
     setRecords((current) => current.some((row) => row.id === saved.id)
       ? current.map((row) => row.id === saved.id ? { ...row, ...saved } : row)
       : [...current, { ...saved, students: match.students, classes: match.students.classes }])
-    return { message: `${match.students.name} berhasil absen ${mode === 'entry' ? 'masuk' : 'pulang'}.`, confidence: mode === 'entry' ? saved.confidence : saved.check_out_confidence, subline: match.students.classes?.name }
+    return { message: `${match.students.name} berhasil absen ${mode === 'entry' ? 'masuk' : 'pulang'}.`, confidence: mode === 'entry' ? saved.confidence : saved.check_out_confidence, subline: match.students.classes?.name, recorded: true }
   }
 
   async function updateStatus(record, status) {

@@ -29,6 +29,12 @@ server {
     add_header Cache-Control "public";
   }
 
+  location /audio/ {
+    types { audio/wav wav; }
+    expires 1h;
+    add_header Cache-Control "public";
+  }
+
   location / {
     try_files $uri $uri/ /index.html;
   }

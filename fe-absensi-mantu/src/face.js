@@ -61,6 +61,10 @@ export function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
 }
 
+export function attendanceEventKey(mode, identity) {
+  return `${mode}:${identity}`
+}
+
 // Skor verifikasi, bukan probabilitas: ambang penolakan dipetakan ke 70 dan kecocokan identik ke 100.
 export function faceMatchScore(distance, threshold) {
   if (!Number.isFinite(distance) || !Number.isFinite(threshold) || threshold <= 0) return 0

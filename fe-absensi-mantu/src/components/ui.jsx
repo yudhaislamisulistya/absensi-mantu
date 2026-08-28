@@ -115,43 +115,64 @@ export function StatusBadge({ value }) {
   return <span className={`status status-${value}`}>{labels[value] || value || '-'}</span>
 }
 
-function playFeedback() {
-  const message = 'Absensi berhasil dilakukan.'
-  if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
-    const utterance = new window.SpeechSynthesisUtterance(message)
-    const indonesianVoice = window.speechSynthesis.getVoices()
-      .find((voice) => voice.lang.toLowerCase().startsWith('id'))
-    utterance.lang = 'id-ID'
-    utterance.volume = 1
-    utterance.rate = 0.9
-    utterance.pitch = 1
-    if (indonesianVoice) utterance.voice = indonesianVoice
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.speak(utterance)
-    return
-  }
+let feedbackAudio
 
-  const AudioContext = window.AudioContext || window.webkitAudioContext
-  if (!AudioContext) return
-  const context = new AudioContext()
-  const frequencies = [660, 880]
-  frequencies.forEach((frequency, index) => {
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    const start = context.currentTime + index * 0.13
-    oscillator.type = 'sine'
-    oscillator.frequency.value = frequency
-    gain.gain.setValueAtTime(0.0001, start)
-    gain.gain.exponentialRampToValueAtTime(0.3, start + 0.015)
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.11)
-    oscillator.connect(gain).connect(context.destination)
-    oscillator.start(start)
-    oscillator.stop(start + 0.12)
-  })
-  window.setTimeout(() => context.close(), 500)
+function getFeedbackAudio() {
+  if (!feedbackAudio) {
+    feedbackAudio = new window.Audio('/audio/absensi-berhasil.wav')
+    feedbackAudio.preload = 'auto'
+  }
+  return feedbackAudio
+}
+
+function speakFeedback() {
+  const message = 'Absensi berhasil dilakukan.'
+  if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return
+  const utterance = new window.SpeechSynthesisUtterance(message)
+  const indonesianVoice = window.speechSynthesis.getVoices()
+    .find((voice) => voice.lang.toLowerCase().startsWith('id'))
+  utterance.lang = 'id-ID'
+  utterance.volume = 1
+  utterance.rate = 0.9
+  utterance.pitch = 1
+  if (indonesianVoice) utterance.voice = indonesianVoice
+  window.speechSynthesis.cancel()
+  window.speechSynthesis.speak(utterance)
+}
+
+function prepareFeedback() {
+  const audio = getFeedbackAudio()
+  audio.muted = true
+  audio.play().then(() => {
+    audio.pause()
+    audio.currentTime = 0
+    audio.muted = false
+  }).catch(() => { audio.muted = false })
+}
+
+function playFeedback() {
+  const audio = getFeedbackAudio()
+  audio.pause()
+  audio.currentTime = 0
+  audio.muted = false
+  audio.volume = 1
+  audio.play().catch(speakFeedback)
 }
 
 export function Toast({ toast, onClose }) {
+  useEffect(() => {
+    const unlock = () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+      prepareFeedback()
+    }
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', unlock)
+      window.removeEventListener('keydown', unlock)
+    }
+  }, [])
   useEffect(() => {
     if (toast?.sound && toast.type !== 'error') playFeedback()
   }, [toast])

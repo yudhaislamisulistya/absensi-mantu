@@ -1,6 +1,6 @@
 import { CheckCircle2, LogIn, LogOut, ScanFace, Video, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { bestMatch, detectFace, faceMatchScore, faceQuality, loadFaceModels, median, openCamera, stopCamera } from '../face'
+import { attendanceEventKey, bestMatch, detectFace, faceMatchScore, faceQuality, loadFaceModels, median, openCamera, stopCamera } from '../face'
 
 function timeMinutes(value) {
   const [hours, minutes] = String(value || '00:00').slice(0, 5).split(':').map(Number)
@@ -21,7 +21,7 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
   const streamRef = useRef(null)
   const detectingRef = useRef(false)
   const candidateRef = useRef({ key: '', distances: [] })
-  const lastSeenRef = useRef({})
+  const completedRef = useRef(new Set())
   const lastErrorToastRef = useRef(0)
   const recognizedRef = useRef(onRecognized)
 
@@ -35,12 +35,12 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
     streamRef.current = null
     setScanning(false)
     candidateRef.current = { key: '', distances: [] }
+    completedRef.current.clear()
     updateState({ type: 'idle', message: 'Kamera belum diaktifkan' })
   }
 
   function changeMode(value) {
     stopScanner()
-    lastSeenRef.current = {}
     setMode(value)
   }
 
@@ -55,6 +55,7 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
       streamRef.current = await openCamera(videoRef.current)
       setScanning(true)
       candidateRef.current = { key: '', distances: [] }
+      completedRef.current.clear()
       updateState({ type: 'scanning', message: 'Arahkan satu wajah ke area kamera dan tahan posisi' })
     } catch (error) {
       setToast({ type: 'error', message: error.name === 'NotAllowedError' ? 'Izin kamera ditolak oleh browser.' : error.message })
@@ -71,6 +72,7 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
     streamRef.current = null
     setScanning(false)
     candidateRef.current = { key: '', distances: [] }
+    completedRef.current.clear()
     const state = { type: 'idle', message: 'Kamera belum diaktifkan' }
     setScanState(state)
     onStateChange?.(state)
@@ -115,9 +117,8 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
           return
         }
 
-        const candidateKey = `${mode}:${match[identityKey]}`
-        const now = Date.now()
-        if (now - (lastSeenRef.current[candidateKey] || 0) < 8000) return
+        const candidateKey = attendanceEventKey(mode, match[identityKey])
+        if (completedRef.current.has(candidateKey)) return
         candidateRef.current = candidateRef.current.key === candidateKey
           ? { key: candidateKey, distances: [...candidateRef.current.distances, match.distance].slice(-3) }
           : { key: candidateKey, distances: [match.distance] }
@@ -129,11 +130,11 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
         const distance = median(candidateRef.current.distances)
         const score = faceMatchScore(distance, threshold)
         const result = await recognizedRef.current(match, mode, distance, score)
-        lastSeenRef.current[candidateKey] = now
+        completedRef.current.add(candidateKey)
         candidateRef.current = { key: '', distances: [] }
         const state = { type: 'success', message: result.message, person: match[personKey], confidence: result.confidence ?? score, distance, subline: result.subline }
         updateState(state)
-        if (result.notify !== false) setToast({ message: result.message, sound: true })
+        if (result.recorded) setToast({ message: result.message, sound: true })
       } catch (error) {
         candidateRef.current = { key: '', distances: [] }
         showFailure(error.message, true)
