@@ -22,7 +22,7 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
   const detectingRef = useRef(false)
   const candidateRef = useRef({ key: '', distances: [] })
   const lastSeenRef = useRef({})
-  const notificationRef = useRef({ key: '', at: 0 })
+  const lastErrorToastRef = useRef(0)
   const recognizedRef = useRef(onRecognized)
 
   const updateState = useCallback((value) => {
@@ -78,12 +78,13 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
 
   useEffect(() => {
     if (!scanning || disabled) return undefined
-    function showFailure(message) {
+    function showFailure(message, notify = false) {
       updateState({ type: 'unknown', message })
+      if (!notify) return
       const now = Date.now()
-      if (notificationRef.current.key !== message || now - notificationRef.current.at > 5000) {
-        notificationRef.current = { key: message, at: now }
-        setToast({ type: 'error', message, sound: true })
+      if (now - lastErrorToastRef.current > 8000) {
+        lastErrorToastRef.current = now
+        setToast({ type: 'error', message })
       }
     }
     const interval = window.setInterval(async () => {
@@ -132,11 +133,10 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
         candidateRef.current = { key: '', distances: [] }
         const state = { type: 'success', message: result.message, person: match[personKey], confidence: result.confidence ?? score, distance, subline: result.subline }
         updateState(state)
-        notificationRef.current = { key: result.message, at: now }
-        setToast({ message: result.message, sound: true })
+        if (result.notify !== false) setToast({ message: result.message, sound: true })
       } catch (error) {
         candidateRef.current = { key: '', distances: [] }
-        showFailure(error.message)
+        showFailure(error.message, true)
       } finally {
         detectingRef.current = false
       }

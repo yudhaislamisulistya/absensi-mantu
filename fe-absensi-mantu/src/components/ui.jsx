@@ -115,11 +115,8 @@ export function StatusBadge({ value }) {
   return <span className={`status status-${value}`}>{labels[value] || value || '-'}</span>
 }
 
-function playFeedback(type) {
-  const message = type === 'error'
-    ? 'Absensi gagal dilakukan, silakan coba lagi.'
-    : 'Absensi berhasil dilakukan.'
-
+function playFeedback() {
+  const message = 'Absensi berhasil dilakukan.'
   if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
     const utterance = new window.SpeechSynthesisUtterance(message)
     const indonesianVoice = window.speechSynthesis.getVoices()
@@ -137,7 +134,7 @@ function playFeedback(type) {
   const AudioContext = window.AudioContext || window.webkitAudioContext
   if (!AudioContext) return
   const context = new AudioContext()
-  const frequencies = type === 'error' ? [220, 165] : [660, 880]
+  const frequencies = [660, 880]
   frequencies.forEach((frequency, index) => {
     const oscillator = context.createOscillator()
     const gain = context.createGain()
@@ -156,7 +153,7 @@ function playFeedback(type) {
 
 export function Toast({ toast, onClose }) {
   useEffect(() => {
-    if (toast?.sound) playFeedback(toast.type || 'success')
+    if (toast?.sound && toast.type !== 'error') playFeedback()
   }, [toast])
   if (!toast) return null
   return (

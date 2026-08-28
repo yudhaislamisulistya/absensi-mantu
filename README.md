@@ -10,7 +10,7 @@ Sistem administrasi dan absensi siswa berbasis pengenalan wajah. Frontend dibuat
 - Registrasi lima sampel wajah per siswa dan guru melalui kamera browser dengan pemeriksaan kualitas, jarak, dan pencahayaan.
 - Pengaturan waktu masuk, waktu pulang, dan batas toleransi dari menu admin.
 - Satu sesi absensi sekolah per hari di ruang guru dengan mode wajah masuk/pulang, konfirmasi tiga frame, pemeriksaan kandidat ambigu, skor kecocokan, dan pencegahan check-in berulang.
-- Notifikasi hasil pemindaian di bagian atas halaman beserta suara ucapan bahasa Indonesia bervolume maksimum untuk status berhasil dan gagal.
+- Petunjuk kegagalan pemindaian ditampilkan secara senyap di area kamera, sedangkan pencatatan baru yang berhasil memakai suara ucapan bahasa Indonesia bervolume maksimum.
 - Absensi wajah masuk/pulang guru, koreksi status manual, dan reset data pengujian hari ini.
 - Tanggal absensi dan reset sesi hari ini untuk pengujian ulang dengan konfirmasi pengaman.
 - Koreksi status dan pencatatan pulang manual untuk siswa tanpa profil wajah.

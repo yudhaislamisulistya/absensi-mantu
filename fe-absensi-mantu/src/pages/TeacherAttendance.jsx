@@ -51,7 +51,7 @@ export default function TeacherAttendance({ setToast }) {
     const existing = records.find((row) => row.teacher_id === match.teacher_id)
     const alreadyRecorded = event === 'entry' ? existing?.check_in_at : existing?.check_out_at
     if (alreadyRecorded) {
-      return { message: `${match.teachers.name} sudah absen ${event === 'entry' ? 'masuk' : 'pulang'}.`, confidence: score, subline: `NIP ${match.teachers.nip}` }
+      return { message: `${match.teachers.name} sudah absen ${event === 'entry' ? 'masuk' : 'pulang'}.`, confidence: score, subline: `NIP ${match.teachers.nip}`, notify: false }
     }
     const updated = await api.rpc('check_teacher_face', { p_teacher_id: match.teacher_id, p_event: event, p_distance: distance })
     setRecords((current) => current.map((row) => row.id === updated.id ? { ...row, ...updated } : row))
@@ -65,7 +65,7 @@ export default function TeacherAttendance({ setToast }) {
       setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
       setToast({ message: `${record.teachers.name} berhasil absen ${event === 'entry' ? 'masuk' : 'pulang'}.`, sound: true })
     } catch (error) {
-      setToast({ type: 'error', message: error.message, sound: true })
+      setToast({ type: 'error', message: error.message })
     } finally {
       setBusyId('')
     }
