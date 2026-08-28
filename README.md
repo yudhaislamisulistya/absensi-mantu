@@ -100,6 +100,9 @@ docker exec -i absensi_mantu_postgres_db \
 docker exec -i absensi_mantu_postgres_db \
   psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
   < database/06_teacher_attendance.sql
+docker exec -i absensi_mantu_postgres_db \
+  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
+  < database/07_remove_legacy_dummy_data.sql
 docker compose up -d --build
 ```
 
@@ -107,15 +110,5 @@ Migrasi menggabungkan sesi per kelas pada tanggal yang sama menjadi satu sesi se
 
 ## Data demonstrasi
 
-Seed berikut mengisi 4 jurusan, 12 guru, 8 kelas beserta guru wali, 64 siswa,
-48 profil wajah sintetis, serta riwayat absensi siswa dan guru pada semester berjalan:
-
-```bash
-docker exec -i absensi_mantu_postgres_db \
-  psql -U absensi_mantu -d absensi_mantu -v ON_ERROR_STOP=1 \
-  < database/seed_dummy.sql
-```
-
-Seed bersifat idempotent dan dapat dijalankan ulang. NIP/NIS demonstrasi memakai
-awalan `DMY-`. Descriptor wajah pada seed hanya untuk pratinjau; daftarkan ulang
-wajah siswa melalui kamera sebelum menggunakan data sebagai absensi nyata.
+Seed demonstrasi lama telah dinonaktifkan agar data jurusan, kelas, siswa, dan guru
+yang sudah dihapus tidak dapat muncul kembali saat deployment.
