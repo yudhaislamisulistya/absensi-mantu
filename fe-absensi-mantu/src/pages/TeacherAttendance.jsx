@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import FaceScanner from '../components/FaceScanner'
 import { ConfirmDialog, DataTable, PageHeader, StatusBadge, formatTime, initials } from '../components/ui'
+import { attendanceSuccessMessage } from '../face'
 
 function localDate() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
@@ -63,7 +64,7 @@ export default function TeacherAttendance({ setToast }) {
     try {
       const updated = await api.rpc('record_teacher_attendance', { p_teacher_id: record.teacher_id, p_event: event })
       setRecords((current) => current.map((row) => row.id === record.id ? { ...row, ...updated } : row))
-      setToast({ message: `${record.teachers.name} berhasil absen ${event === 'entry' ? 'masuk' : 'pulang'}.`, sound: true })
+      setToast({ message: `${record.teachers.name} berhasil absen ${event === 'entry' ? 'masuk' : 'pulang'}.`, sound: true, voiceMessage: attendanceSuccessMessage(event, record.teachers.name) })
     } catch (error) {
       setToast({ type: 'error', message: error.message })
     } finally {

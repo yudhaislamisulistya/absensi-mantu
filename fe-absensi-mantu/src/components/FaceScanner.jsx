@@ -1,6 +1,6 @@
 import { CheckCircle2, LogIn, LogOut, ScanFace, Video, VideoOff } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { attendanceEventKey, bestMatch, detectFace, faceMatchScore, faceQuality, loadFaceModels, median, openCamera, stopCamera } from '../face'
+import { attendanceEventKey, attendanceSuccessMessage, bestMatch, detectFace, faceMatchScore, faceQuality, loadFaceModels, median, openCamera, stopCamera } from '../face'
 
 function timeMinutes(value) {
   const [hours, minutes] = String(value || '00:00').slice(0, 5).split(':').map(Number)
@@ -134,7 +134,7 @@ export default function FaceScanner({ profiles, identityKey, personKey, threshol
         candidateRef.current = { key: '', distances: [] }
         const state = { type: 'success', message: result.message, person: match[personKey], confidence: result.confidence ?? score, distance, subline: result.subline }
         updateState(state)
-        if (result.recorded) setToast({ message: result.message, sound: true })
+        if (result.recorded) setToast({ message: result.message, sound: true, voiceMessage: attendanceSuccessMessage(mode, match[personKey].name) })
       } catch (error) {
         candidateRef.current = { key: '', distances: [] }
         showFailure(error.message, true)

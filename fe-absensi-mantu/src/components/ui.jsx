@@ -116,6 +116,7 @@ export function StatusBadge({ value }) {
 }
 
 let feedbackAudio
+let feedbackRun = 0
 
 function getFeedbackAudio() {
   if (!feedbackAudio) {
@@ -125,23 +126,58 @@ function getFeedbackAudio() {
   return feedbackAudio
 }
 
-function speakFeedback() {
-  const message = 'Absensi berhasil dilakukan.'
-  if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return
+function playRecordedFeedback(run) {
+  if (run !== feedbackRun) return
+  const audio = getFeedbackAudio()
+  audio.pause()
+  audio.currentTime = 0
+  audio.muted = false
+  audio.volume = 1
+  audio.play().catch(() => {})
+}
+
+function speakFeedback(message, run) {
+  if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+    playRecordedFeedback(run)
+    return
+  }
+  const synthesis = window.speechSynthesis
   const utterance = new window.SpeechSynthesisUtterance(message)
-  const indonesianVoice = window.speechSynthesis.getVoices()
+  const indonesianVoice = synthesis.getVoices()
     .find((voice) => voice.lang.toLowerCase().startsWith('id'))
   utterance.lang = 'id-ID'
   utterance.volume = 1
   utterance.rate = 0.9
   utterance.pitch = 1
   if (indonesianVoice) utterance.voice = indonesianVoice
-  window.speechSynthesis.cancel()
-  window.speechSynthesis.speak(utterance)
+  let started = false
+  const fallback = window.setTimeout(() => {
+    if (run !== feedbackRun || started) return
+    synthesis.cancel()
+    playRecordedFeedback(run)
+  }, 1500)
+  utterance.onstart = () => {
+    started = true
+    window.clearTimeout(fallback)
+  }
+  utterance.onend = () => window.clearTimeout(fallback)
+  utterance.onerror = () => {
+    window.clearTimeout(fallback)
+    playRecordedFeedback(run)
+  }
+  synthesis.cancel()
+  synthesis.resume()
+  synthesis.speak(utterance)
 }
 
 function prepareFeedback() {
   const audio = getFeedbackAudio()
+  if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+    const unlockSpeech = new window.SpeechSynthesisUtterance(' ')
+    unlockSpeech.volume = 0
+    window.speechSynthesis.resume()
+    window.speechSynthesis.speak(unlockSpeech)
+  }
   audio.muted = true
   audio.play().then(() => {
     audio.pause()
@@ -150,13 +186,10 @@ function prepareFeedback() {
   }).catch(() => { audio.muted = false })
 }
 
-function playFeedback() {
-  const audio = getFeedbackAudio()
-  audio.pause()
-  audio.currentTime = 0
-  audio.muted = false
-  audio.volume = 1
-  audio.play().catch(speakFeedback)
+function playFeedback(message) {
+  feedbackRun += 1
+  getFeedbackAudio().pause()
+  speakFeedback(message || 'Absensi berhasil dilakukan.', feedbackRun)
 }
 
 export function Toast({ toast, onClose }) {
@@ -174,7 +207,7 @@ export function Toast({ toast, onClose }) {
     }
   }, [])
   useEffect(() => {
-    if (toast?.sound && toast.type !== 'error') playFeedback()
+    if (toast?.sound && toast.type !== 'error') playFeedback(toast.voiceMessage)
   }, [toast])
   if (!toast) return null
   return (

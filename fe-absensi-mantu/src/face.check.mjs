@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { attendanceEventKey, bestMatch, faceMatchScore, faceQuality, median } from './face.js'
+import { attendanceEventKey, attendanceSuccessMessage, bestMatch, faceMatchScore, faceQuality, median } from './face.js'
 
 const query = new Float32Array([0, 0, 0])
 const profiles = [
@@ -20,5 +20,7 @@ assert.match(faceQuality({ detection: { score: 0.9, box: { x: 100, width: 100 } 
 const completedEvents = new Set([attendanceEventKey('entry', 'student-a')])
 assert.equal(completedEvents.has(attendanceEventKey('entry', 'student-a')), true)
 assert.equal(completedEvents.has(attendanceEventKey('exit', 'student-a')), false)
+assert.equal(attendanceSuccessMessage('entry', '  Siti Aminah  '), 'Absensi masuk atas nama Siti Aminah berhasil dilakukan.')
+assert.equal(attendanceSuccessMessage('exit', 'Budi Santoso'), 'Absensi pulang atas nama Budi Santoso berhasil dilakukan.')
 
 console.log('Face matching and quality checks passed.')

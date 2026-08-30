@@ -65,6 +65,10 @@ export function attendanceEventKey(mode, identity) {
   return `${mode}:${identity}`
 }
 
+export function attendanceSuccessMessage(mode, name) {
+  return `Absensi ${mode === 'exit' ? 'pulang' : 'masuk'} atas nama ${String(name || '').trim()} berhasil dilakukan.`
+}
+
 // Skor verifikasi, bukan probabilitas: ambang penolakan dipetakan ke 70 dan kecocokan identik ke 100.
 export function faceMatchScore(distance, threshold) {
   if (!Number.isFinite(distance) || !Number.isFinite(threshold) || threshold <= 0) return 0
