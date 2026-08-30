@@ -66,7 +66,8 @@ export function attendanceEventKey(mode, identity) {
 }
 
 export function attendanceSuccessMessage(mode, name) {
-  return `Absensi ${mode === 'exit' ? 'pulang' : 'masuk'} atas nama ${String(name || '').trim()} berhasil dilakukan.`
+  const firstName = String(name || '').trim().split(/\s+/)[0]
+  return `Absensi ${mode === 'exit' ? 'pulang' : 'masuk'} ${firstName} berhasil dilakukan.`
 }
 
 // Skor verifikasi, bukan probabilitas: ambang penolakan dipetakan ke 70 dan kecocokan identik ke 100.
